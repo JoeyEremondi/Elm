@@ -48,6 +48,8 @@ import qualified Data.Text as TS
 import qualified Data.Text.Lazy as TL
 import Text.Shakespeare
 
+import Elm.Haskelm.EToH
+
 -- | Render Elm to lazy Text.
 renderElm :: Elm -> TL.Text
 renderElm (Elm b) = toLazyText b
@@ -97,3 +99,6 @@ elmFileReload :: FilePath -> Q Exp
 elmFileReload fp = do
     rs <- elmSettings
     shakespeareFileReload rs fp
+    
+    
+-- $(test) 

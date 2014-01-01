@@ -40,6 +40,8 @@ Library
                        Elm.Haskelm.Quasi,
                        Elm.Haskelm.EToH
   Hs-Source-Dirs:      compiler
+  extensions:             TemplateHaskell
+  ghc-options:         -ddump-splices
   other-modules:       SourceSyntax.Declaration,
                        SourceSyntax.Expression,
                        SourceSyntax.Helpers,
@@ -118,8 +120,9 @@ Library
 
 Executable elm
   Main-is:             Compiler.hs
-  ghc-options:         -threaded -O2
+  ghc-options:         -threaded -O2 -ddump-splices
   Hs-Source-Dirs:      compiler
+  extensions:          TemplateHaskell
   other-modules:       SourceSyntax.Declaration,
                        SourceSyntax.Expression,
                        SourceSyntax.Helpers,
