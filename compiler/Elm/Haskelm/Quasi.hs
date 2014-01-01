@@ -11,6 +11,12 @@
 -- Further reading on Shakespearean templates: <http://www.yesodweb.com/book/templates>
 --
 -- Further reading on Elm: <http://elm-lang.org>
+
+{-
+In order to support modules, we'll assume there's a single directory
+with a given path-name, all the elm-files
+-}
+
 module Elm.Haskelm.Quasi
     ( -- * Functions
       -- ** Template-Reading Functions

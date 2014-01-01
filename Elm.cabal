@@ -37,7 +37,8 @@ Library
                        Elm.Internal.Paths,
                        Elm.Internal.Utils,
                        Elm.Internal.Version,
-                       Elm.Haskelm.Quasi
+                       Elm.Haskelm.Quasi,
+                       Elm.Haskelm.EToH
   Hs-Source-Dirs:      compiler
   other-modules:       SourceSyntax.Declaration,
                        SourceSyntax.Expression,
