@@ -6,6 +6,7 @@ Description:         Elm aims to make client-side web-development more pleasant.
                      language to HTML, CSS, and JS. This package provides a
                      library for Elm compilation in Haskell and a compiler
                      executable.
+                     Modified version with QuasiQuoting and translation
 
 Homepage:            http://elm-lang.org
 
@@ -35,7 +36,8 @@ Library
                        Elm.Internal.Name,
                        Elm.Internal.Paths,
                        Elm.Internal.Utils,
-                       Elm.Internal.Version
+                       Elm.Internal.Version,
+                       Elm.Haskelm.Quasi
   Hs-Source-Dirs:      compiler
   other-modules:       SourceSyntax.Declaration,
                        SourceSyntax.Expression,
@@ -109,7 +111,9 @@ Library
                        text,
                        transformers >= 0.2,
                        union-find,
-                       unordered-containers
+                       unordered-containers,
+                       shakespeare,
+                       template-haskell
 
 Executable elm
   Main-is:             Compiler.hs
