@@ -9,11 +9,13 @@ import qualified SourceSyntax.Pattern as P
 import qualified SourceSyntax.Type as T
 import qualified SourceSyntax.Variable as V
 
+import qualified Language.Haskell.TH.Syntax as TH
+
 notImplemented = error "Not Implemented"
 
 
-translate :: M.Module Int Int -> Int --TODO fix
+translate :: M.Module Int Int -> [TH.Dec]--TODO fix
 translate m = notImplemented
 
-translateDecl :: D.Declaration Int Int -> Int 
+translateDecl :: D.Declaration Int Int -> TH.Dec
 translateDecl m = notImplemented
