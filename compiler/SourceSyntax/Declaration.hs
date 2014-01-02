@@ -1,9 +1,13 @@
 module SourceSyntax.Declaration where
 
+{-# LANGUAGE DeriveDataTypeable #-}
+
 import qualified SourceSyntax.Expression as Expr
 import SourceSyntax.Type
 import SourceSyntax.PrettyPrint
 import Text.PrettyPrint as P
+import Data.Data
+
 
 data Declaration tipe var
     = Definition (Expr.Def tipe var)
@@ -12,10 +16,10 @@ data Declaration tipe var
     | ImportEvent String (Expr.LExpr tipe var) String Type
     | ExportEvent String String Type
     | Fixity Assoc Int String
-      deriving (Eq, Show)
+      deriving (Eq, Show, Typeable, Data)
 
 data Assoc = L | N | R
-             deriving (Eq)
+             deriving (Eq, Data, Typeable)
 
 instance Show Assoc where
     show assoc =

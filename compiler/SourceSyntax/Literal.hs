@@ -1,14 +1,17 @@
 module SourceSyntax.Literal where
 
+{-# LANGUAGE DeriveDataTypeable #-}
+
 import SourceSyntax.PrettyPrint
 import qualified Text.PrettyPrint as PP
+import Data.Data
 
 data Literal = IntNum Int
              | FloatNum Double
              | Chr Char
              | Str String
              | Boolean Bool
-               deriving (Eq, Ord, Show)
+               deriving (Eq, Ord, Show, Data, Typeable)
 
 instance Pretty Literal where
   pretty literal =

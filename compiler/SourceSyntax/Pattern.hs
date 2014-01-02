@@ -1,10 +1,13 @@
 module SourceSyntax.Pattern where
 
+{-# LANGUAGE DeriveDataTypeable #-}
+
 import Data.List (intercalate)
 import SourceSyntax.Helpers as Help
 import SourceSyntax.PrettyPrint
 import Text.PrettyPrint as PP
 import SourceSyntax.Literal as Literal
+import Data.Data
 
 data Pattern = PData String [Pattern]
              | PRecord [String]
@@ -12,7 +15,7 @@ data Pattern = PData String [Pattern]
              | PVar String
              | PAnything
              | PLiteral Literal.Literal
-               deriving (Eq, Ord, Show)
+               deriving (Eq, Ord, Show, Typeable, Data)
 
 cons h t = PData "::" [h,t]
 nil      = PData "[]" []

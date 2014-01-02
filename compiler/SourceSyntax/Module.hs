@@ -1,5 +1,7 @@
 module SourceSyntax.Module where
 
+{-# LANGUAGE DeriveDataTypeable #-}
+
 import Data.Binary
 import Data.List (intercalate)
 import qualified Data.Map as Map

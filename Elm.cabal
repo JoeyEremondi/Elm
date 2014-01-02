@@ -38,10 +38,12 @@ Library
                        Elm.Internal.Utils,
                        Elm.Internal.Version,
                        Elm.Haskelm.Quasi,
-                       Elm.Haskelm.EToH
+                       Elm.Haskelm.EToH,
+                       Elm.Haskelm.Test,
+                       Elm.Haskelm.Test2
   Hs-Source-Dirs:      compiler
-  extensions:             TemplateHaskell
-  ghc-options:         -ddump-splices
+  extensions:          TemplateHaskell, QuasiQuotes, DeriveDataTypeable
+  ghc-options:         -ddump-splices -XDeriveDataTypeable
   other-modules:       SourceSyntax.Declaration,
                        SourceSyntax.Expression,
                        SourceSyntax.Helpers,
@@ -120,9 +122,9 @@ Library
 
 Executable elm
   Main-is:             Compiler.hs
-  ghc-options:         -threaded -O2 -ddump-splices
+  ghc-options:         -threaded -O2 -ddump-splices -XDeriveDataTypeable
   Hs-Source-Dirs:      compiler
-  extensions:          TemplateHaskell
+  extensions:          TemplateHaskell, QuasiQuotes, DeriveDataTypeable
   other-modules:       SourceSyntax.Declaration,
                        SourceSyntax.Expression,
                        SourceSyntax.Helpers,
@@ -195,7 +197,9 @@ Executable elm
                        text,
                        transformers >= 0.2,
                        union-find,
-                       unordered-containers
+                       unordered-containers,
+                       template-haskell,
+                       shakespeare
 
 Executable elm-doc
   Main-is:             Docs.hs

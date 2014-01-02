@@ -1,7 +1,8 @@
-module Elm.Haskelm.EToH (translate) where
+module Elm.Haskelm.EToH  where
 
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -XTemplateHaskell #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 import qualified SourceSyntax.Module as M
 import qualified SourceSyntax.Declaration as D
@@ -20,10 +21,12 @@ notImplemented = error "Not Implemented"
 qNull :: Q [a]
 qNull = return []
 
-translate :: M.Module tipe var -> [DecQ]--TODO fix
-translate m = notImplemented
+translate :: [D.Declaration tipe var] -> DecsQ--TODO fix
+translate decs = do
+  mapM translateDecl decs
+  
 
-translateDecl :: D.Declaration Int Int -> DecQ
+translateDecl :: D.Declaration tipe var -> DecQ
 translateDecl decl = 
   case decl of
        D.Definition def -> notImplemented
@@ -32,7 +35,8 @@ translateDecl decl =
          let tVarNames = map mkName tvars
          --Recursively translate the list of types
          let hctors = map transCtor ctors
-         dataD qNull hname [] hctors []
+         ret <- dataD qNull hname [] hctors []
+         return ret
          where
            transCtor (ctor, types) = do
               let tlist = map translateType types
@@ -58,6 +62,9 @@ translateType' theType =
        --Haskell doesn't distinguish between records and ADTs
        T.Record nameTypeList ty ->  notImplemented
   
-       
+
+
+  
+  
 --test :: Q [Dec]
 --test = return $ [ DataD [] (mkName "Foo") [] [NormalC (mkName "Bar") [], NormalC (mkName "Baz") []] []]

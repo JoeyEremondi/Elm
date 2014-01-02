@@ -1,18 +1,21 @@
 module SourceSyntax.Type where
 
+{-# LANGUAGE DeriveDataTypeable #-}
+
 import Data.Binary
 import qualified Data.Map as Map
 import qualified SourceSyntax.Helpers as Help
 import Control.Applicative ((<$>), (<*>))
 import SourceSyntax.PrettyPrint
 import Text.PrettyPrint as P
+import Data.Data
 
 data Type = Lambda Type Type
           | Var String
           | Data String [Type]
           | EmptyRecord
           | Record [(String,Type)] Type
-            deriving (Eq, Show)
+            deriving (Eq, Show, Typeable, Data)
 
 fieldMap :: [(String,a)] -> Map.Map String [a]
 fieldMap fields =

@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-missing-fields #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 -- | This module contains Shakespearean (see "Text.Shakespeare") templates for Elm.
 -- It introduces type-safe compile-time variable and URL interpolation. A typeclass
@@ -40,7 +41,7 @@ module Elm.Haskelm.Quasi
 
     ) where
 
-import Language.Haskell.TH.Quote (QuasiQuoter (..))
+import Language.Haskell.TH.Quote (QuasiQuoter (..), dataToExpQ)
 import Language.Haskell.TH.Syntax
 import Data.Text.Lazy.Builder (Builder, fromText, toLazyText, fromLazyText)
 import Data.Monoid
@@ -48,7 +49,13 @@ import qualified Data.Text as TS
 import qualified Data.Text.Lazy as TL
 import Text.Shakespeare
 
+import SourceSyntax.Declaration
+import SourceSyntax.Module
+import qualified Parse.Parse as Parse
+
 import Elm.Haskelm.EToH
+
+import qualified Data.Map as Map
 
 -- | Render Elm to lazy Text.
 renderElm :: Elm -> TL.Text
@@ -75,14 +82,22 @@ elmSettings = do
   , unwrap = unWrapExp
   }
 
+elmDefault :: String -> [Declaration () ()]
+elmDefault s =  
+  let eMod = Parse.program (Map.fromList []) s
+  in case eMod of
+    Left doc -> error $ "Elm quasi parse failed\n" ++ (show doc)
+    Right (Module _ _ _ decs) -> decs
+  
+quoteElmExp :: String -> Q Exp
+quoteElmExp s =  dataToExpQ (const Nothing)  (elmDefault s)
+  
 -- |QuasiQuoter for embedding Elm code inside of Haskell code.
 --
 -- Usage:
 -- @[elm|main = plaintext \"Some elm code\"|]@
 elm :: QuasiQuoter
-elm = QuasiQuoter { quoteExp = \s -> do
-    rs <- elmSettings
-    quoteExp (shakespeare rs) s
+elm = QuasiQuoter { quoteExp = quoteElmExp
     }
 
 -- |A Template Haskell function for embedding Elm code from external
@@ -101,4 +116,3 @@ elmFileReload fp = do
     shakespeareFileReload rs fp
     
     
--- $(test) 
