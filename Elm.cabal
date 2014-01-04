@@ -1,245 +1,112 @@
-Name:                Elm
-Version:             0.10.1
-Synopsis:            The Elm language module.
-Description:         Elm aims to make client-side web-development more pleasant.
-                     It is a statically/strongly typed, functional reactive
-                     language to HTML, CSS, and JS. This package provides a
-                     library for Elm compilation in Haskell and a compiler
-                     executable.
-                     Modified version with QuasiQuoting and translation
-
-Homepage:            http://elm-lang.org
-
-License:             BSD3
-License-file:        LICENSE
-
-Author:              Evan Czaplicki
-Maintainer:          info@elm-lang.org
-Copyright:           Copyright: (c) 2011-2013 Evan Czaplicki
-
-Category:            Compiler, Language
-
-Build-type:          Custom
-
-Extra-source-files:  changelog.txt
-Data-dir:            data
-Data-files:          elm-runtime.js interfaces.data docs.json
-Cabal-version:       >=1.9
+name: Elm
+version: 0.10.1
+cabal-version: >=1.9
+build-type: Custom
+license: BSD3
+license-file: LICENSE
+copyright: Copyright: (c) 2011-2013 Evan Czaplicki
+maintainer: info@elm-lang.org
+homepage: http://elm-lang.org
+synopsis: The Elm language module.
+description: Elm aims to make client-side web-development more pleasant.
+             It is a statically/strongly typed, functional reactive
+             language to HTML, CSS, and JS. This package provides a
+             library for Elm compilation in Haskell and a compiler
+             executable.
+             Modified version with QuasiQuoting and translation
+category: Compiler, Language
+author: Evan Czaplicki
+data-files: elm-runtime.js interfaces.data docs.json
+data-dir: data
+extra-source-files: changelog.txt
 
 source-repository head
-  type:     git
-  location: git://github.com/evancz/Elm.git
+    type: git
+    location: git://github.com/evancz/Elm.git
 
-Library
-  exposed-modules:     Elm.Internal.Dependencies,
-                       Elm.Internal.Documentation,
-                       Elm.Internal.Name,
-                       Elm.Internal.Paths,
-                       Elm.Internal.Utils,
-                       Elm.Internal.Version,
-                       Elm.Haskelm.Quasi,
-                       Elm.Haskelm.EToH,
-                       Elm.Haskelm.Test,
-                       Elm.Haskelm.Test2
-  Hs-Source-Dirs:      compiler
-  extensions:          TemplateHaskell, QuasiQuotes, DeriveDataTypeable
-  ghc-options:         -ddump-splices -XDeriveDataTypeable
-  other-modules:       SourceSyntax.Declaration,
-                       SourceSyntax.Expression,
-                       SourceSyntax.Helpers,
-                       SourceSyntax.Literal,
-                       SourceSyntax.Location,
-                       SourceSyntax.Module,
-                       SourceSyntax.Pattern,
-                       SourceSyntax.PrettyPrint,
-                       SourceSyntax.Type,
-                       Generate.JavaScript,
-                       Generate.Noscript,
-                       Generate.Markdown,
-                       Generate.Html,
-                       Generate.Cases,
-                       Transform.Canonicalize,
-                       Transform.Check,
-                       Transform.SafeNames,
-                       Transform.SortDefinitions,
-                       Transform.Substitute,
-                       Transform.Optimize,
-                       Metadata.Prelude,
-                       InterfaceSerialization,
-                       Parse.Binop,
-                       Parse.Declaration,
-                       Parse.Expression,
-                       Parse.Helpers,
-                       Parse.Literal,
-                       Parse.Module,
-                       Parse.Parse,
-                       Parse.Pattern,
-                       Parse.Type,
-                       Type.Alias,
-                       Type.Constrain.Declaration,
-                       Type.Constrain.Expression,
-                       Type.Constrain.Literal,
-                       Type.Constrain.Pattern,
-                       Type.Environment,
-                       Type.ExtraChecks,
-                       Type.Fragment,
-                       Type.Inference,
-                       Type.PrettyPrint,
-                       Type.Solve,
-                       Type.State,
-                       Type.Type,
-                       Type.Unify,
-                       Build.Dependencies,
-                       Build.File,
-                       Build.Flags,
-                       Build.Print,
-                       Build.Source,
-                       Build.Utils,
-                       Paths_Elm
+library
+    build-depends: aeson -any, base >=4.2 && <5, binary >=0.6.4.0,
+                   blaze-html ==0.5.* || ==0.6.*, blaze-markup -any, bytestring -any,
+                   cmdargs -any, containers >=0.3, directory -any, filepath -any,
+                   indents -any, language-ecmascript >=0.15 && <1.0, mtl >=2,
+                   pandoc >=1.10, parsec >=3.1.1, pretty -any, text -any,
+                   transformers >=0.2, union-find -any, unordered-containers -any,
+                   shakespeare -any, template-haskell -any
+    exposed-modules: Elm.Internal.Dependencies
+                     Elm.Internal.Documentation Elm.Internal.Name Elm.Internal.Paths
+                     Elm.Internal.Utils Elm.Internal.Version Elm.Haskelm.Quasi
+                     Elm.Haskelm.EToH Elm.Haskelm.Test Elm.Haskelm.Test2
+    exposed: True
+    buildable: True
+    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable
+    hs-source-dirs: compiler
+    other-modules: Elm.Haskelm.HToE SourceSyntax.Declaration
+                   SourceSyntax.Expression SourceSyntax.Helpers SourceSyntax.Literal
+                   SourceSyntax.Location SourceSyntax.Module SourceSyntax.Pattern
+                   SourceSyntax.PrettyPrint SourceSyntax.Type Generate.JavaScript
+                   Generate.Noscript Generate.Markdown Generate.Html Generate.Cases
+                   Transform.Canonicalize Transform.Check Transform.SafeNames
+                   Transform.SortDefinitions Transform.Substitute Transform.Optimize
+                   Metadata.Prelude InterfaceSerialization Parse.Binop
+                   Parse.Declaration Parse.Expression Parse.Helpers Parse.Literal
+                   Parse.Module Parse.Parse Parse.Pattern Parse.Type Type.Alias
+                   Type.Constrain.Declaration Type.Constrain.Expression
+                   Type.Constrain.Literal Type.Constrain.Pattern Type.Environment
+                   Type.ExtraChecks Type.Fragment Type.Inference Type.PrettyPrint
+                   Type.Solve Type.State Type.Type Type.Unify Build.Dependencies
+                   Build.File Build.Flags Build.Print Build.Source Build.Utils
+                   Paths_Elm
+    ghc-options: -ddump-splices -XDeriveDataTypeable
 
-  Build-depends:       aeson,
-                       base >=4.2 && <5,
-                       binary >= 0.6.4.0,
-                       blaze-html == 0.5.* || == 0.6.*,
-                       blaze-markup,
-                       bytestring,
-                       cmdargs,
-                       containers >= 0.3,
-                       directory,
-                       filepath,
-                       indents,
-                       language-ecmascript >=0.15 && < 1.0,
-                       mtl >= 2,
-                       pandoc >= 1.10,
-                       parsec >= 3.1.1,
-                       pretty,
-                       text,
-                       transformers >= 0.2,
-                       union-find,
-                       unordered-containers,
-                       shakespeare,
-                       template-haskell
+executable elm
+    build-depends: aeson -any, base >=4.2 && <5, binary >=0.6.4.0,
+                   blaze-html ==0.5.* || ==0.6.*, blaze-markup ==0.5.1.*,
+                   bytestring -any, cmdargs -any, containers >=0.3, directory -any,
+                   filepath -any, indents -any, language-ecmascript >=0.15 && <1.0,
+                   mtl >=2, pandoc >=1.10, parsec >=3.1.1, pretty -any, text -any,
+                   transformers >=0.2, union-find -any, unordered-containers -any,
+                   template-haskell -any, shakespeare -any
+    main-is: Compiler.hs
+    buildable: True
+    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable
+    hs-source-dirs: compiler
+    other-modules: Elm.Haskelm.HToE SourceSyntax.Declaration
+                   SourceSyntax.Expression SourceSyntax.Helpers SourceSyntax.Literal
+                   SourceSyntax.Location SourceSyntax.Module SourceSyntax.Pattern
+                   SourceSyntax.PrettyPrint SourceSyntax.Type Generate.JavaScript
+                   Generate.Noscript Generate.Markdown Generate.Html Generate.Cases
+                   Transform.Canonicalize Transform.Check Transform.SafeNames
+                   Transform.SortDefinitions Transform.Substitute Transform.Optimize
+                   Metadata.Prelude InterfaceSerialization Parse.Binop
+                   Parse.Declaration Parse.Expression Parse.Helpers Parse.Literal
+                   Parse.Module Parse.Parse Parse.Pattern Parse.Type Type.Alias
+                   Type.Constrain.Declaration Type.Constrain.Expression
+                   Type.Constrain.Literal Type.Constrain.Pattern Type.Environment
+                   Type.ExtraChecks Type.Fragment Type.Inference Type.PrettyPrint
+                   Type.Solve Type.State Type.Type Type.Unify Build.Dependencies
+                   Build.File Build.Flags Build.Print Build.Source Build.Utils
+                   Paths_Elm
+    ghc-options: -threaded -O2 -ddump-splices -XDeriveDataTypeable
 
-Executable elm
-  Main-is:             Compiler.hs
-  ghc-options:         -threaded -O2 -ddump-splices -XDeriveDataTypeable
-  Hs-Source-Dirs:      compiler
-  extensions:          TemplateHaskell, QuasiQuotes, DeriveDataTypeable
-  other-modules:       SourceSyntax.Declaration,
-                       SourceSyntax.Expression,
-                       SourceSyntax.Helpers,
-                       SourceSyntax.Literal,
-                       SourceSyntax.Location,
-                       SourceSyntax.Module,
-                       SourceSyntax.Pattern,
-                       SourceSyntax.PrettyPrint,
-                       SourceSyntax.Type,
-                       Generate.JavaScript,
-                       Generate.Noscript,
-                       Generate.Markdown,
-                       Generate.Html,
-                       Generate.Cases,
-                       Transform.Canonicalize,
-                       Transform.Check,
-                       Transform.SafeNames,
-                       Transform.SortDefinitions,
-                       Transform.Substitute,
-                       Transform.Optimize,
-                       Metadata.Prelude,
-                       InterfaceSerialization,
-                       Parse.Binop,
-                       Parse.Declaration,
-                       Parse.Expression,
-                       Parse.Helpers,
-                       Parse.Literal,
-                       Parse.Module,
-                       Parse.Parse,
-                       Parse.Pattern,
-                       Parse.Type,
-                       Type.Alias,
-                       Type.Constrain.Declaration,
-                       Type.Constrain.Expression,
-                       Type.Constrain.Literal,
-                       Type.Constrain.Pattern,
-                       Type.Environment,
-                       Type.ExtraChecks,
-                       Type.Fragment,
-                       Type.Inference,
-                       Type.PrettyPrint,
-                       Type.Solve,
-                       Type.State,
-                       Type.Type,
-                       Type.Unify,
-                       Build.Dependencies,
-                       Build.File,
-                       Build.Flags,
-                       Build.Print,
-                       Build.Source,
-                       Build.Utils,
-                       Paths_Elm
+executable elm-doc
+    build-depends: aeson -any, aeson-pretty -any, base >=4.2 && <5,
+                   binary >=0.6.4.0, bytestring -any, cmdargs -any, containers >=0.3,
+                   directory -any, filepath -any, indents -any, mtl >=2,
+                   pandoc >=1.10, parsec >=3.1.1, pretty -any, text -any
+    main-is: Docs.hs
+    buildable: True
+    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable
+    hs-source-dirs: compiler
+    other-modules: Elm.Haskelm.HToE SourceSyntax.Declaration
+                   SourceSyntax.Expression SourceSyntax.Helpers SourceSyntax.Literal
+                   SourceSyntax.Location SourceSyntax.Module SourceSyntax.Pattern
+                   SourceSyntax.PrettyPrint SourceSyntax.Type Parse.Binop
+                   Parse.Declaration Parse.Expression Parse.Helpers Parse.Literal
+                   Parse.Module Parse.Pattern Parse.Type
 
-  Build-depends:       aeson,
-                       base >=4.2 && <5,
-                       binary >= 0.6.4.0,
-                       blaze-html == 0.5.* || == 0.6.*,
-                       blaze-markup == 0.5.1.*,
-                       bytestring,
-                       cmdargs,
-                       containers >= 0.3,
-                       directory,
-                       filepath,
-                       indents,
-                       language-ecmascript >=0.15 && < 1.0,
-                       mtl >= 2,
-                       pandoc >= 1.10,
-                       parsec >= 3.1.1,
-                       pretty,
-                       text,
-                       transformers >= 0.2,
-                       union-find,
-                       unordered-containers,
-                       template-haskell,
-                       shakespeare
-
-Executable elm-doc
-  Main-is:             Docs.hs
-  Hs-Source-Dirs:      compiler
-  other-modules:       SourceSyntax.Declaration,
-                       SourceSyntax.Expression,
-                       SourceSyntax.Helpers,
-                       SourceSyntax.Literal,
-                       SourceSyntax.Location,
-                       SourceSyntax.Module,
-                       SourceSyntax.Pattern,
-                       SourceSyntax.PrettyPrint,
-                       SourceSyntax.Type,
-                       Parse.Binop,
-                       Parse.Declaration,
-                       Parse.Expression,
-                       Parse.Helpers,
-                       Parse.Literal,
-                       Parse.Module,
-                       Parse.Pattern,
-                       Parse.Type
-
-  Build-depends:       aeson,
-                       aeson-pretty,
-                       base >=4.2 && <5,
-                       binary >= 0.6.4.0,
-                       bytestring,
-                       cmdargs,
-                       containers >= 0.3,
-                       directory,
-                       filepath,
-                       indents,
-                       mtl >= 2,
-                       pandoc >= 1.10,
-                       parsec >= 3.1.1,
-                       pretty,
-                       text
-
-Test-Suite test-elm
-  Type:            exitcode-stdio-1.0
-  Hs-Source-Dirs:  tests
-  Main-is:         Main.hs
-  build-depends:   base, directory, HTF
+test-suite test-elm
+    build-depends: base -any, directory -any, HTF -any
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    buildable: True
+    hs-source-dirs: tests

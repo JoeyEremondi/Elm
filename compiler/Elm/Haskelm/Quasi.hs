@@ -28,7 +28,7 @@ module Elm.Haskelm.Quasi
       -- URLs is provided in the Examples folder in the Git repository.
       elm
     , elmFile
-    , elmFileReload
+    -- , elmFileReload
 
       -- * Datatypes
     , Elm (..)
@@ -82,23 +82,23 @@ elmSettings = do
   , unwrap = unWrapExp
   }
 
-elmDefault :: String -> [Declaration () ()]
-elmDefault s =  
+parseModule :: String -> [Declaration () ()]
+parseModule s =  
   let eMod = Parse.program (Map.fromList []) s
   in case eMod of
     Left doc -> error $ "Elm quasi parse failed\n" ++ (show doc)
     Right (Module _ _ _ decs) -> decs
   
-quoteElmExp :: String -> Q Exp
-quoteElmExp s =  dataToExpQ (const Nothing)  (elmDefault s)
+getElmAST :: String -> Q Exp
+getElmAST s =  dataToExpQ (const Nothing)  (parseModule s)
   
--- |QuasiQuoter for embedding Elm code inside of Haskell code.
---
--- Usage:
--- @[elm|main = plaintext \"Some elm code\"|]@
+-- QuasiQuoter for embedding Elm code inside of Haskell code.
+-- Returns a list of declarations in the Q monad
 elm :: QuasiQuoter
-elm = QuasiQuoter { quoteExp = quoteElmExp
+elm = QuasiQuoter { quoteExp = getElmAST
     }
+
+    
 
 -- |A Template Haskell function for embedding Elm code from external
 -- .elm files.
@@ -107,12 +107,14 @@ elm = QuasiQuoter { quoteExp = quoteElmExp
 -- @$(elmFile \"elm_source/index.elm\")@
 elmFile :: FilePath -> Q Exp
 elmFile fp = do
-    rs <- elmSettings
-    shakespeareFile rs fp
+    s <- runIO $ readFile fp
+    getElmAST s
 
+--TODO do reloading
+{-
 elmFileReload :: FilePath -> Q Exp
 elmFileReload fp = do
     rs <- elmSettings
     shakespeareFileReload rs fp
-    
+-}    
     
