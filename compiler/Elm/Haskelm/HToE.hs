@@ -43,7 +43,10 @@ translateCtor (NormalC name strictTyList) =  (nameToString name, map (translateT
 toElm :: [Dec] -> [D.Declaration () ()]
 toElm decs = map translateDec decs
 
+--------------------------------------------------------------------------
+
 translateDec:: Dec -> D.Declaration () ()
+
 translateDec (FunD name clauseList) = unImplemented
 translateDec (ValD pat body decs) = unImplemented
 
@@ -79,6 +82,18 @@ translateDec (NewtypeInstD cxt name types ctor names) = unImplemented
 
 translateDec (TySynInstD name types theTy) = unImplemented
 
+--------------------------------------------------------------------------
+--Type helper functions
+
+isTupleType (AppT (TupleT _arity) _) = True
+isTupleType (AppT t1 t2) = isTupleType t1
+isTupleType _ = False
+
+tupleTypeToList (AppT (TupleT _arity) t) = [t]
+tupleTypeToList (AppT t1 t2) = (tupleTypeToList t1) ++ [t2]
+
+--------------------------------------------------------------------------
+
 translateType :: Type -> T.Type
 --type variables
 translateType (VarT name) = T.Var (nameToString name)
@@ -90,6 +105,11 @@ translateType (AppT (AppT ArrowT a) b) = T.Lambda ea eb
           eb = translateType b
 --empty tuple/record
 translateType (TupleT 0) = T.EmptyRecord
+--Lists and tuples, just Data in Elm
+translateType (AppT ListT t) = T.listOf (et)
+    where et = translateType t
 --TODO fill in other cases, esp records
-
-translateType t = unImplemented
+--Cases which aren't captured by basic pattern matching
+translateType t
+    | isTupleType t = T.tupleOf (map translateType $ tupleTypeToList t)
+    | otherwise = unImplemented
