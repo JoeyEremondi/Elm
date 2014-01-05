@@ -16,4 +16,4 @@ import Elm.Haskelm.Test
 
 -- $(translate theTest2)
 
-$(decHaskAndElm [d| data Foo = Baz Int | Bar String |])
+$(decHaskAndElm "myGreatElmString" [d| data Foo = Baz Int | Bar String |])

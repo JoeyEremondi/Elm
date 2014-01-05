@@ -106,13 +106,13 @@ elm = QuasiQuoter { quoteExp = getElmAST
     }
 
 --Declares the given Haskell declarations, equivalent Elm stuff
-decHaskAndElm :: DecsQ -> DecsQ
-decHaskAndElm dq = do
+decHaskAndElm :: String -> DecsQ -> DecsQ
+decHaskAndElm varName dq = do
     decs <- dq
     --runIO $ putStrLn $ "Got pretty " ++ ( concat $ map (show . Pretty.pretty) $  HToE.toElm decs)
     elmDecs <- HToE.toElm decs
     let elmExp = liftString $ concat $ map (show . Pretty.pretty) $ elmDecs
-    let pat = varP (mkName "theElmDecs")
+    let pat = varP (mkName varName)
     let body = normalB elmExp
     elmDec <- valD pat body []
     return $ decs ++ [elmDec]
