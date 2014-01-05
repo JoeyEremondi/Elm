@@ -36,26 +36,32 @@ tyVarToName (KindedTV n _ ) = n
 nameToString :: Name -> String
 nameToString n = show n --TODO fancier?
 
-translateCtor :: Con -> (String,[T.Type])
-translateCtor (NormalC name strictTyList) =  (nameToString name, map (translateType . snd) strictTyList)
+translateCtor :: Con -> Q (String,[T.Type])
+translateCtor (NormalC name strictTyList) =  do
+  let sndList = map snd strictTyList
+  tyList <- mapM translateType sndList
+  return (nameToString name, tyList)
 --TODO handle record decs
 
-toElm :: [Dec] -> [D.Declaration () ()]
-toElm decs = map translateDec decs
+toElm :: [Dec] -> Q [D.Declaration () ()]
+toElm decs = do
+  retList <- mapM translateDec decs
+  return retList
 
 --------------------------------------------------------------------------
 
-translateDec:: Dec -> D.Declaration () ()
+translateDec:: Dec -> Q (D.Declaration () () )
 
 translateDec (FunD name clauseList) = unImplemented
 translateDec (ValD pat body decs) = unImplemented
 
-translateDec (DataD [] name tyBindings ctors names) =
-    D.Datatype eName eTyVars eCtors
+translateDec (DataD [] name tyBindings ctors names) = do
+    eCtors <- mapM translateCtor ctors
+    return $ D.Datatype eName eTyVars eCtors
     where
         eName = nameToString name
         eTyVars = map (nameToString . tyVarToName) tyBindings
-        eCtors = map translateCtor ctors
+        
 
 --TODO data case for non-empty context?
 translateDec (DataD cxt name tyBindings ctors names) = unImplemented
@@ -85,31 +91,76 @@ translateDec (TySynInstD name types theTy) = unImplemented
 --------------------------------------------------------------------------
 --Type helper functions
 
+int = [t| Int |]
+string = [t| String |]
+float = [t| Float |]
+bool = [t| Bool |]
+
+isIntType t = do
+  tint <- int
+  runIO $ putStrLn $ "Checking if int " ++ (show (t == tint)) 
+  return (t == tint)
+  
+isStringType t = do
+  tstr <- string
+  return (t == tstr)
+  
+isFloatType t = do
+  tfloat <- float
+  return (t == tfloat)
+  
+isBoolType t = do
+  tbool <- bool
+  return (t == tbool)
+
 isTupleType (AppT (TupleT _arity) _) = True
 isTupleType (AppT t1 t2) = isTupleType t1
 isTupleType _ = False
+
 
 tupleTypeToList (AppT (TupleT _arity) t) = [t]
 tupleTypeToList (AppT t1 t2) = (tupleTypeToList t1) ++ [t2]
 
 --------------------------------------------------------------------------
 
-translateType :: Type -> T.Type
---type variables
-translateType (VarT name) = T.Var (nameToString name)
---sum types/ADTs
-translateType (ConT name) = T.Data (nameToString name) [] --TODO what is this list param?
---functions
-translateType (AppT (AppT ArrowT a) b) = T.Lambda ea eb
-    where ea = translateType a
-          eb = translateType b
---empty tuple/record
-translateType (TupleT 0) = T.EmptyRecord
---Lists and tuples, just Data in Elm
-translateType (AppT ListT t) = T.listOf (et)
-    where et = translateType t
+translateType :: Type -> Q T.Type
+
+    
 --TODO fill in other cases, esp records
 --Cases which aren't captured by basic pattern matching
-translateType t
-    | isTupleType t = T.tupleOf (map translateType $ tupleTypeToList t)
-    | otherwise = unImplemented
+translateType t = do
+  --Unbox some Monad information that we need
+  isInt <- isIntType t
+  isString <- isStringType t
+  isFloat <- isFloatType t
+  isBool <- isBoolType t
+  generalTranslate isInt isString isFloat isBool --TODO get these in scope
+  where 
+    generalTranslate :: Bool -> Bool -> Bool -> Bool -> Q T.Type
+    generalTranslate isInt isString isFloat isBool
+      | isInt = return $ T.Data "Int" []
+      | isString = return $ T.Data "String" []
+      | isFloat = return $ T.Data "Float" []
+      | isBool = return $ T.Data "Bool" []
+      | isTupleType t = do
+          tyList <- mapM translateType (tupleTypeToList t)
+          return $ T.tupleOf tyList
+      | otherwise = case t of
+          --type variables
+          (VarT name) -> return $ T.Var (nameToString name)
+          --sum types/ADTs
+          (ConT name) -> return $ T.Data (nameToString name) [] --TODO what is this list param?
+          --functions
+          (AppT (AppT ArrowT a) b) -> do
+            ea <- translateType a
+            eb <- translateType b
+            return $ T.Lambda ea eb
+            
+          --empty tuple/record
+          (TupleT 0) -> return $ T.EmptyRecord
+          --Lists and tuples, just Data in Elm
+          (AppT ListT t) -> do
+            et <- translateType t
+            return $ T.listOf (et)
+          _ -> unImplemented
+          
