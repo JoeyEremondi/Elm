@@ -34,7 +34,7 @@ tyVarToName (PlainTV n) = n
 tyVarToName (KindedTV n _ ) = n
 
 nameToString :: Name -> String
-nameToString n = show n --TODO fancier?
+nameToString n = nameBase n --TODO fancier?
 
 translateCtor :: Con -> Q (String,[T.Type])
 translateCtor (NormalC name strictTyList) =  do
