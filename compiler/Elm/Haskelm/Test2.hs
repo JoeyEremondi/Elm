@@ -12,6 +12,8 @@ import Elm.Haskelm.Quasi
 import Elm.Haskelm.EToH
 import Elm.Haskelm.Test
 
-$(translate theTest)
+-- $(translate theTest)
 
 -- $(translate theTest2)
+
+$(decHaskAndElm [d| data Foo = Baz Int | Bar String |])

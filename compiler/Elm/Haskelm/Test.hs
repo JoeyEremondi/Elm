@@ -14,9 +14,9 @@ import Elm.Haskelm.EToH
 import SourceSyntax.Declaration
 
 
-theTest :: [Declaration () ()]
+--theTest :: [Declaration () ()]
 
-theTest = [elm|data Foo = Bar | Baz |]
+--theTest = [elm|data Foo = Bar | Baz |]
 
-theTest2 :: [Declaration () ()]
-theTest2 = $(elmFile "test.elm")
+--theTest2 :: [Declaration () ()]
+--theTest2 = $(elmFile "test.elm")

@@ -38,11 +38,13 @@ module Elm.Haskelm.Quasi
 
       -- ** Rendering Functions
     , renderElm
+    ,decHaskAndElm
 
     ) where
 
 import Language.Haskell.TH.Quote (QuasiQuoter (..), dataToExpQ)
 import Language.Haskell.TH.Syntax
+import Language.Haskell.TH
 import Data.Text.Lazy.Builder (Builder, fromText, toLazyText, fromLazyText)
 import Data.Monoid
 import qualified Data.Text as TS
@@ -53,9 +55,14 @@ import SourceSyntax.Declaration
 import SourceSyntax.Module
 import qualified Parse.Parse as Parse
 
+import Language.Haskell.TH.Lib
+
 import Elm.Haskelm.EToH
+import qualified Elm.Haskelm.HToE as HToE
 
 import qualified Data.Map as Map
+
+import SourceSyntax.PrettyPrint as Pretty
 
 -- | Render Elm to lazy Text.
 renderElm :: Elm -> TL.Text
@@ -83,22 +90,31 @@ elmSettings = do
   }
 
 parseModule :: String -> [Declaration () ()]
-parseModule s =  
+parseModule s =
   let eMod = Parse.program (Map.fromList []) s
   in case eMod of
     Left doc -> error $ "Elm quasi parse failed\n" ++ (show doc)
     Right (Module _ _ _ decs) -> decs
-  
+
 getElmAST :: String -> Q Exp
 getElmAST s =  dataToExpQ (const Nothing)  (parseModule s)
-  
+
 -- QuasiQuoter for embedding Elm code inside of Haskell code.
 -- Returns a list of declarations in the Q monad
 elm :: QuasiQuoter
 elm = QuasiQuoter { quoteExp = getElmAST
     }
 
-    
+--Declares the given Haskell declarations, equivalent Elm stuff
+decHaskAndElm :: DecsQ -> DecsQ
+decHaskAndElm dq = do
+    decs <- dq
+    runIO $ putStrLn $ "Got pretty " ++ ( concat $ map (show . Pretty.pretty) $  HToE.toElm decs)
+    let elmDecs = liftString $ concat $ map (show . Pretty.pretty) $  HToE.toElm decs
+    let pat = varP (mkName "theElmDecs")
+    let body = normalB elmDecs
+    elmDec <- valD pat body []
+    return $ decs ++ [elmDec]
 
 -- |A Template Haskell function for embedding Elm code from external
 -- .elm files.
@@ -116,5 +132,5 @@ elmFileReload :: FilePath -> Q Exp
 elmFileReload fp = do
     rs <- elmSettings
     shakespeareFileReload rs fp
--}    
-    
+-}
+
