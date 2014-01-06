@@ -21,6 +21,6 @@ $(decHaskAndElm "myGreatElmString"
         data Foo = Baz Int | Bar String
 
         unFoo x = case x of
-            Baz x -> 3
+            Baz x -> 5
             Bar y -> 4
     |])
