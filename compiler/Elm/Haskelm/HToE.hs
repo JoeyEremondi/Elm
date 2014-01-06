@@ -93,7 +93,11 @@ translateDec (FunD name [Clause patList body _where])  = do
     ePats <- mapM translatePattern patList
     return $ D.Definition $ E.Def (P.PVar eName) (makeFunction ePats (Lo.none eBody))
 
-translateDec (ValD pat body decs) = unImplemented "Value decl"
+translateDec (ValD pat body _where)  = do
+    eBody <- translateBody body
+    ePat <- translatePattern pat
+    return $ D.Definition $ E.Def ePat (Lo.none eBody)
+
 
 translateDec (DataD [] name tyBindings ctors names) = do
     eCtors <- mapM translateCtor ctors
@@ -112,7 +116,7 @@ translateDec (TySynD name tyBindings ty) = unImplemented "Type synonyms"
 translateDec (ClassD cxt name tyBindings funDeps decs ) = unImplemented "Class definitions"
 translateDec (InstanceD cxt ty decs) = unImplemented "Instance declarations"
 
-translateDec (SigD name ty) = unImplemented "Type signaturess"
+translateDec (SigD name ty) = (D.Definition . (E.TypeAnnotation (nameToString name)) ) <$> translateType ty
 translateDec (ForeignD frn) = unImplemented "FFI declarations"
 
 

@@ -24,10 +24,13 @@ $(decHaskAndElm "myGreatElmString"
             Baz x -> Bar "3"
             Bar y -> Baz 4
 
-        x _ = 3 + 4 - 5 * 6 / 7 `mod` 8
+        x :: Int
+        x = 3 + 4 - 5 * 67 `mod` 8
 
+        y :: String -> Int
         y _ = if 3 < 4 then 5 else 6
 
+        z :: Int -> Int
         z arg = if
             |arg < 3 -> 3
             | arg == 3 -> 4
