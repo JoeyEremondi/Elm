@@ -86,7 +86,7 @@ executable elm
                    Type.Solve Type.State Type.Type Type.Unify Build.Dependencies
                    Build.File Build.Flags Build.Print Build.Source Build.Utils
                    Paths_Elm
-    ghc-options: -threaded -O2 -ddump-splices -XDeriveDataTypeable
+    ghc-options: -ddump-splices -XDeriveDataTypeable
 
 executable elm-doc
     build-depends: aeson -any, aeson-pretty -any, base >=4.2 && <5,

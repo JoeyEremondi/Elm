@@ -1,4 +1,4 @@
-module Parse.Expression (def,term,typeAnnotation) where
+module Parse.Expression (def,term,typeAnnotation, makeFunction) where
 
 import Control.Arrow ((***))
 import Control.Applicative ((<$>), (<*>))
@@ -84,7 +84,7 @@ parensTerm = try (parens opFn) <|> parens (tupleFn <|> parened)
           loc = Location.at start end
       return $ foldr (\x e -> loc $ Lambda x e)
                  (loc . tuple $ map (loc . Var) vars) (map PVar vars)
-    
+
     parened = do
       (start, es, end) <- located (commaSep expr)
       return $ case es of
@@ -99,7 +99,7 @@ recordTerm = brackets $ choice [ misc, addLocation record ]
               padded equals
               body <- expr
               return (label, makeFunction patterns body)
-              
+
           record = Record <$> commaSep field
 
           change = do
@@ -122,7 +122,7 @@ recordTerm = brackets $ choice [ misc, addLocation record ]
             case opt of
               Just e  -> try (insert e) <|> return e
               Nothing -> try (insert record) <|> try (modify record)
-                        
+
 
 term :: IParser (LExpr t v)
 term =  addLocation (choice [ Literal <$> literal, listTerm, accessor, negative ])
@@ -193,7 +193,7 @@ caseExpr = do
 
 expr = addLocation (choice [ ifExpr, letExpr, caseExpr ])
     <|> lambdaExpr
-    <|> binaryExpr 
+    <|> binaryExpr
     <?> "an expression"
 
 defStart :: IParser [Pattern]

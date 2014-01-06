@@ -16,4 +16,11 @@ import Elm.Haskelm.Test
 
 -- $(translate theTest2)
 
-$(decHaskAndElm "myGreatElmString" [d| data Foo = Baz Int | Bar String |])
+$(decHaskAndElm "myGreatElmString"
+    [d|
+        data Foo = Baz Int | Bar String
+
+        unFoo x = case x of
+            Baz x -> 3
+            Bar y -> 4
+    |])
