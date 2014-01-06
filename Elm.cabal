@@ -38,7 +38,7 @@ library
                      Elm.Haskelm.EToH Elm.Haskelm.Test Elm.Haskelm.Test2
     exposed: True
     buildable: True
-    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable
+    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable MultiWayIf
     hs-source-dirs: compiler
     other-modules: Elm.Haskelm.HToE SourceSyntax.Declaration
                    SourceSyntax.Expression SourceSyntax.Helpers SourceSyntax.Literal
@@ -56,7 +56,7 @@ library
                    Type.Solve Type.State Type.Type Type.Unify Build.Dependencies
                    Build.File Build.Flags Build.Print Build.Source Build.Utils
                    Paths_Elm
-    ghc-options: -ddump-splices -XDeriveDataTypeable
+    ghc-options: -ddump-splices
 
 executable elm
     build-depends: aeson -any, base >=4.2 && <5, binary >=0.6.4.0,
@@ -68,7 +68,7 @@ executable elm
                    template-haskell -any, shakespeare -any
     main-is: Compiler.hs
     buildable: True
-    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable
+    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable MultiWayIf
     hs-source-dirs: compiler
     other-modules: Elm.Haskelm.HToE SourceSyntax.Declaration
                    SourceSyntax.Expression SourceSyntax.Helpers SourceSyntax.Literal
@@ -86,7 +86,7 @@ executable elm
                    Type.Solve Type.State Type.Type Type.Unify Build.Dependencies
                    Build.File Build.Flags Build.Print Build.Source Build.Utils
                    Paths_Elm
-    ghc-options: -ddump-splices -XDeriveDataTypeable
+    ghc-options: -ddump-splices
 
 executable elm-doc
     build-depends: aeson -any, aeson-pretty -any, base >=4.2 && <5,
@@ -95,7 +95,7 @@ executable elm-doc
                    pandoc >=1.10, parsec >=3.1.1, pretty -any, text -any
     main-is: Docs.hs
     buildable: True
-    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable
+    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable MultiWayIf
     hs-source-dirs: compiler
     other-modules: Elm.Haskelm.HToE SourceSyntax.Declaration
                    SourceSyntax.Expression SourceSyntax.Helpers SourceSyntax.Literal

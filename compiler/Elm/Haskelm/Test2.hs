@@ -27,4 +27,10 @@ $(decHaskAndElm "myGreatElmString"
         x _ = 3 + 4 - 5 * 6 / 7 `mod` 8
 
         y _ = if 3 < 4 then 5 else 6
+
+        z arg = if
+            |arg < 3 -> 3
+            | arg == 3 -> 4
+            | arg < 100 -> 99
+            |otherwise -> 10
     |])
