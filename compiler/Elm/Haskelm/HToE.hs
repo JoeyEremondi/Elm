@@ -182,6 +182,10 @@ expressionToString (VarE name) = nameToString name
 
 -- | Generic elm expression for "otherwise"
 elmOtherwise = E.Var "otherwise"
+
+-- | Translate a guard into an Elm expression
+translateGuard (NormalG exp) = translateExp exp
+translateGuard _ = unImplemented "Pattern-match guards"
 --------------------------------------------------------------------------
 {-|Translate a haskell Expression into Elm
 Currently supported: Variables, literals
@@ -208,7 +212,6 @@ translateExpression (ParensE e) = translateExpression e
 
 translateExpression (TupE es) = (E.tuple . (map Lo.none)) <$> mapM translateExpression es
 
--- TODO if?
 translateExpression (CondE cond th el) = do
     eCond <- Lo.none <$> translateExpression cond
     eTh <- Lo.none <$> translateExpression th
@@ -216,7 +219,14 @@ translateExpression (CondE cond th el) = do
     let loOtherwise = Lo.none elmOtherwise
     return $ E.MultiIf [(eCond, eTh), (loOtherwise, eEl)]
 
-translateExpression (MultiIfE guardExpList) = unImplemented "multiple if expr"
+translateExpression (MultiIfE guardExpList) = do
+    expPairs <- mapM transPair guardExpList
+    return E.MultiIfE expPairs
+    where
+        transPair (guard, exp) = do
+            eGuard <- translateGuard guard
+            eExp <- translateExp exp
+            return (eGuard, eExp)
 
 translateExpression (LetE decList exp) = do
     eDecs <- mapM translateDef decList
