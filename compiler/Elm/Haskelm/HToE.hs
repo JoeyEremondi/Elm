@@ -161,6 +161,7 @@ translatePattern (ParensP p) = translatePattern p
 
 --TODO Infix, tilde, bang, as, record,  view
 
+
 translatePattern WildP = return P.PAnything
 
 --Ignore the type signature if there's one in the pattern
@@ -176,16 +177,21 @@ translatePattern _ = unImplemented "Misc patterns"
 translateBody  :: Body -> Q (E.Expr t v)
 translateBody (NormalB e) = translateExpression e
 
+-- | Expression helper function to convert a Var to a String
+expressionToString (VarE name) = nameToString name
 
+-- | Generic elm expression for "otherwise"
+elmOtherwise = E.Var "otherwise"
 --------------------------------------------------------------------------
 {-|Translate a haskell Expression into Elm
 Currently supported: Variables, literals
 -}
 translateExpression :: Exp -> Q (E.Expr t v)
 
-translateExpression (VarE name) = return $ E.Var $ nameToString name
+translateExpression (VarE name) =  return $ E.Var $ nameToString name
 
-translateExpression (ConE name) = unImplemented "Constructor expr" --TODO how to do this one?
+--Just treat constructor as variable --TODO is this okay?
+translateExpression (ConE name) = return $ E.Var $ nameToString name
 
 translateExpression (LitE lit) = E.Literal <$> translateLiteral lit
 
@@ -203,7 +209,12 @@ translateExpression (ParensE e) = translateExpression e
 translateExpression (TupE es) = (E.tuple . (map Lo.none)) <$> mapM translateExpression es
 
 -- TODO if?
-translateExpression (CondE cond th el) = unImplemented "if expression"
+translateExpression (CondE cond th el) = do
+    eCond <- Lo.none <$> translateExpression cond
+    eTh <- Lo.none <$> translateExpression th
+    eEl <- Lo.none <$> translateExpression el
+    let loOtherwise = Lo.none elmOtherwise
+    return $ E.MultiIf [(eCond, eTh), (loOtherwise, eEl)]
 
 translateExpression (MultiIfE guardExpList) = unImplemented "multiple if expr"
 
@@ -224,6 +235,13 @@ translateExpression (CaseE exp matchList) = do
         return (ePat, Lo.none eBody)
 
 translateExpression (ListE exps) = (E.ExplicitList . (map Lo.none)) <$> mapM translateExpression exps
+
+--Infix where we have all the parts
+translateExpression (InfixE (Just e1) op (Just e2)) = do
+    eE1 <- translateExpression e1
+    eE2 <- translateExpression e2
+    let eOp =  expressionToString op
+    return $ E.Binop eOp (Lo.none eE1) (Lo.none eE2)
 
 --Just ignore signature
 translateExpression (SigE exp _) = translateExpression exp

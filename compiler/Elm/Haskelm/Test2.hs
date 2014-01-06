@@ -21,6 +21,10 @@ $(decHaskAndElm "myGreatElmString"
         data Foo = Baz Int | Bar String
 
         unFoo x = case x of
-            Baz x -> 5
-            Bar y -> 4
+            Baz x -> Bar "3"
+            Bar y -> Baz 4
+
+        x _ = 3 + 4 - 5 * 6 / 7 `mod` 8
+
+        y _ = if 3 < 4 then 5 else 6
     |])
