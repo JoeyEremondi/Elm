@@ -112,7 +112,12 @@ translateDec (DataD cxt name tyBindings ctors names) = unImplemented "Data decl 
 
 translateDec (NewtypeD cxt name tyBindings  ctor nameList) = unImplemented "Newtypes"
 
-translateDec (TySynD name tyBindings ty) = unImplemented "Type synonyms"
+translateDec (TySynD name tyBindings ty) = do
+    let eName = nameToString name
+    let eTyVars = map (nameToString . tyVarToName) tyBindings
+    eTy <- translateType ty
+    return $ D.TypeAlias eName eTyVars eTy
+
 translateDec (ClassD cxt name tyBindings funDeps decs ) = unImplemented "Class definitions"
 translateDec (InstanceD cxt ty decs) = unImplemented "Instance declarations"
 

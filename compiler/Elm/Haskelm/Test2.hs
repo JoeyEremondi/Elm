@@ -36,4 +36,6 @@ $(decHaskAndElm "myGreatElmString"
             | arg == 3 -> 4
             | arg < 100 -> 99
             |otherwise -> 10
+
+        type MyInt = Int
     |])
