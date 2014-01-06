@@ -38,7 +38,7 @@ toElm decs = do
   return retList
 
 --TODO remove
-unImplemented = error "Not implemented"
+unImplemented s = error $ "Translation of the The following haskell feature is not yet implemented: " ++ s
 
 {-|
 Haskell to Elm Translations
@@ -93,7 +93,7 @@ translateDec (FunD name [Clause patList body _where])  = do
     ePats <- mapM translatePattern patList
     return $ D.Definition $ E.Def (P.PVar eName) (makeFunction ePats (Lo.none eBody))
 
-translateDec (ValD pat body decs) = unImplemented
+translateDec (ValD pat body decs) = unImplemented "Value decl"
 
 translateDec (DataD [] name tyBindings ctors names) = do
     eCtors <- mapM translateCtor ctors
@@ -104,29 +104,29 @@ translateDec (DataD [] name tyBindings ctors names) = do
 
 
 --TODO data case for non-empty context?
-translateDec (DataD cxt name tyBindings ctors names) = unImplemented
+translateDec (DataD cxt name tyBindings ctors names) = unImplemented "Data decl with context"
 
-translateDec (NewtypeD cxt name tyBindings  ctor nameList) = unImplemented
+translateDec (NewtypeD cxt name tyBindings  ctor nameList) = unImplemented "Newtypes"
 
-translateDec (TySynD name tyBindings ty) = unImplemented
-translateDec (ClassD cxt name tyBindings funDeps decs ) = unImplemented
-translateDec (InstanceD cxt ty decs) = unImplemented
+translateDec (TySynD name tyBindings ty) = unImplemented "Type synonyms"
+translateDec (ClassD cxt name tyBindings funDeps decs ) = unImplemented "Class definitions"
+translateDec (InstanceD cxt ty decs) = unImplemented "Instance declarations"
 
-translateDec (SigD name ty) = unImplemented
-translateDec (ForeignD frn) = unImplemented
-
-
-translateDec (PragmaD pragma)  = unImplemented
+translateDec (SigD name ty) = unImplemented "Type signaturess"
+translateDec (ForeignD frn) = unImplemented "FFI declarations"
 
 
-translateDec (FamilyD famFlavour name [tyVarBndr] mKind) = unImplemented
-
-translateDec (DataInstD cxt name types ctors names) = unImplemented
+translateDec (PragmaD pragma)  = unImplemented "Haskell Pragmas"
 
 
-translateDec (NewtypeInstD cxt name types ctor names) = unImplemented
+translateDec (FamilyD famFlavour name [tyVarBndr] mKind) = unImplemented "Type families"
 
-translateDec (TySynInstD name types theTy) = unImplemented
+translateDec (DataInstD cxt name types ctors names) = unImplemented "Data instances"
+
+
+translateDec (NewtypeInstD cxt name types ctor names) = unImplemented "Newtypes instances"
+
+translateDec (TySynInstD name types theTy) = unImplemented "Type synonym instances"
 
 --------------------------------------------------------------------------
 -- | Convert a declaration to an elm Definition
@@ -140,7 +140,7 @@ translateDef (ValD pat body _where) = do
     eExp <- translateBody body
     return $ E.Def ePat (Lo.none eExp)
 
-translateDef d = unImplemented
+translateDef d = unImplemented "Non-simple function/value definitions"
 
 --------------------------------------------------------------------------
 -- |Translate a pattern match from Haskell to Elm
@@ -168,7 +168,7 @@ translatePattern (SigP pat _) = translatePattern pat
 
 translatePattern (ListP patList) = P.list <$> mapM translatePattern patList
 
-translatePattern _ = unImplemented
+translatePattern _ = unImplemented "Misc patterns"
 
 --------------------------------------------------------------------------
 -- |Translate a function body into Elm
@@ -185,7 +185,7 @@ translateExpression :: Exp -> Q (E.Expr t v)
 
 translateExpression (VarE name) = return $ E.Var $ nameToString name
 
-translateExpression (ConE name) = unImplemented --TODO how to do this one?
+translateExpression (ConE name) = unImplemented "Constructor expr" --TODO how to do this one?
 
 translateExpression (LitE lit) = E.Literal <$> translateLiteral lit
 
@@ -203,9 +203,9 @@ translateExpression (ParensE e) = translateExpression e
 translateExpression (TupE es) = (E.tuple . (map Lo.none)) <$> mapM translateExpression es
 
 -- TODO if?
-translateExpression (CondE cond th el) = unImplemented
+translateExpression (CondE cond th el) = unImplemented "if expression"
 
-translateExpression (MultiIfE guardExpList) = unImplemented
+translateExpression (MultiIfE guardExpList) = unImplemented "multiple if expr"
 
 translateExpression (LetE decList exp) = do
     eDecs <- mapM translateDef decList
@@ -248,7 +248,7 @@ translateLiteral = (return . noQTrans) where
 
     noQTrans (RationalL f) = L.FloatNum $ fromRational f
 
-    noQTrans _ = unImplemented
+    noQTrans _ = unImplemented "Misc literals"
 
 
 
@@ -331,5 +331,5 @@ translateType t = do
           (AppT ListT t) -> do
             et <- translateType t
             return $ T.listOf (et)
-          _ -> unImplemented
+          _ -> unImplemented "misc types"
 

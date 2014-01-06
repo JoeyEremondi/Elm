@@ -61,6 +61,7 @@ import Elm.Haskelm.EToH
 import qualified Elm.Haskelm.HToE as HToE
 
 import qualified Data.Map as Map
+import Data.List (intercalate)
 
 import SourceSyntax.PrettyPrint as Pretty
 
@@ -111,7 +112,7 @@ decHaskAndElm varName dq = do
     decs <- dq
     --runIO $ putStrLn $ "Got pretty " ++ ( concat $ map (show . Pretty.pretty) $  HToE.toElm decs)
     elmDecs <- HToE.toElm decs
-    let elmExp = liftString $ concat $ map (show . Pretty.pretty) $ elmDecs
+    let elmExp = liftString $ (intercalate "\n") $ map (show . Pretty.pretty) $ elmDecs
     let pat = varP (mkName varName)
     let body = normalB elmExp
     elmDec <- valD pat body []
