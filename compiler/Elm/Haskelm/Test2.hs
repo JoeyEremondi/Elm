@@ -39,3 +39,7 @@ $(decHaskAndElm "myGreatElmString"
 
         type MyInt = Int
     |])
+
+$(decsFromString "elmFromString" "data X = Y | Z" )   
+
+$(decsFromFile "elmFromFile" "test.hst" )   

@@ -16,6 +16,8 @@ module Elm.Haskelm.HToE where
 
 import Language.Haskell.TH.Syntax
 
+import Data.Aeson.TH
+
 
 import qualified SourceSyntax.Module as M
 import qualified SourceSyntax.Declaration as D
@@ -109,6 +111,7 @@ translateDec (ValD pat body _where)  = do
 
 
 translateDec (DataD [] name tyBindings ctors names) = do
+    --jsonDecs <- deriveFromJSON defaultOptions name
     eCtors <- mapM translateCtor ctors
     return $ single $ D.Datatype eName eTyVars eCtors
     where

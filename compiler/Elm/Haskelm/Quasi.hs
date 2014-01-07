@@ -38,7 +38,9 @@ module Elm.Haskelm.Quasi
 
       -- ** Rendering Functions
     --, renderElm
-    decHaskAndElm
+    decHaskAndElm,
+    decsFromString,
+    decsFromFile
 
     ) where
 
@@ -64,6 +66,15 @@ import qualified Data.Map as Map
 import Data.List (intercalate)
 
 import SourceSyntax.PrettyPrint as Pretty
+
+--source parser
+import Language.Haskell.Meta.Parse
+
+-- | Translate a Haskell string into DecsQ
+stringToDecs :: String -> Q [Dec]
+stringToDecs s = case (parseDecs s) of
+    Left e -> error $ "Failed to parse module\n" ++ e
+    Right decs -> return decs
 
 -- | Render Elm to lazy Text.
 renderElm :: Elm -> TL.Text
@@ -108,6 +119,13 @@ elm = QuasiQuoter { quoteExp = getElmAST
     }
 -}
 
+decsFromString :: String -> String -> DecsQ
+decsFromString varName decString = decHaskAndElm varName (stringToDecs decString)
+
+decsFromFile :: String -> String -> DecsQ
+decsFromFile varName filePath = do
+  decString <- runIO $ readFile filePath
+  decHaskAndElm varName (stringToDecs decString)
 
 --Declares the given Haskell declarations, equivalent Elm stuff
 decHaskAndElm :: String -> DecsQ -> DecsQ
