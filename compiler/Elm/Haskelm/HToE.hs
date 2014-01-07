@@ -26,7 +26,7 @@ import qualified SourceSyntax.Pattern as P
 import qualified SourceSyntax.Type as T
 import qualified SourceSyntax.Variable as V
 
-import Parse.Expression (makeFunction)
+--import Parse.Expression (makeFunction)
 
 import Control.Applicative
 
@@ -48,6 +48,11 @@ compare against Haskell expressions or types in quotes (see isIntType etc.)
 The return value is a list of Elm declarations
 TODO return a module?
 -}
+
+-- |Stolen from Parse.Expression so we don't have to change any internal Elm code
+makeFunction :: [P.Pattern] -> E.LExpr t v -> E.LExpr t v
+makeFunction args body@(Lo.L s _) =
+  foldr (\arg body' -> Lo.L s $ E.Lambda arg body') body args
 
 -- |Translate a type variable to a name, ignoring its kind
 tyVarToName :: TyVarBndr -> Name
