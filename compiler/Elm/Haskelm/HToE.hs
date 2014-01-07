@@ -34,7 +34,7 @@ import Control.Applicative
 --TODO make others private
 toElm :: [Dec] -> Q [D.Declaration () ()]
 toElm decs = do
-  retList <- mapM translateDec decs
+  retList <- concat <$> mapM translateDec decs
   return retList
 
 --TODO remove
@@ -76,6 +76,10 @@ translateCtor (NormalC name strictTyList) =  do
 unClause :: Clause -> ([Pat], Body, [Dec])
 unClause (Clause p b d) = (p, b, d)
 
+-- |Helper for putting elements in a list
+single :: a -> [a]
+single a = [a]
+
 {-|Translate a Haskell declaration into an Elm Declaration
   Currently implemented:
     ADTs
@@ -83,7 +87,7 @@ unClause (Clause p b d) = (p, b, d)
   TODO make a special error for non-supported features
 -}
 
-translateDec:: Dec -> Q (D.Declaration () () )
+translateDec:: Dec -> Q [D.Declaration () () ]
 
 --TODO translate where decs into elm let-decs
 --TODO what about when more than one clause?
@@ -91,17 +95,17 @@ translateDec (FunD name [Clause patList body _where])  = do
     let eName = nameToString name
     eBody <- translateBody body
     ePats <- mapM translatePattern patList
-    return $ D.Definition $ E.Def (P.PVar eName) (makeFunction ePats (Lo.none eBody))
+    return $ single $ D.Definition $ E.Def (P.PVar eName) (makeFunction ePats (Lo.none eBody))
 
 translateDec (ValD pat body _where)  = do
     eBody <- translateBody body
     ePat <- translatePattern pat
-    return $ D.Definition $ E.Def ePat (Lo.none eBody)
+    return $ single $ D.Definition $ E.Def ePat (Lo.none eBody)
 
 
 translateDec (DataD [] name tyBindings ctors names) = do
     eCtors <- mapM translateCtor ctors
-    return $ D.Datatype eName eTyVars eCtors
+    return $ single $ D.Datatype eName eTyVars eCtors
     where
         eName = nameToString name
         eTyVars = map (nameToString . tyVarToName) tyBindings
@@ -116,12 +120,12 @@ translateDec (TySynD name tyBindings ty) = do
     let eName = nameToString name
     let eTyVars = map (nameToString . tyVarToName) tyBindings
     eTy <- translateType ty
-    return $ D.TypeAlias eName eTyVars eTy
+    return $ single $ D.TypeAlias eName eTyVars eTy
 
 translateDec (ClassD cxt name tyBindings funDeps decs ) = unImplemented "Class definitions"
 translateDec (InstanceD cxt ty decs) = unImplemented "Instance declarations"
 
-translateDec (SigD name ty) = (D.Definition . (E.TypeAnnotation (nameToString name)) ) <$> translateType ty
+translateDec (SigD name ty) = (single . D.Definition . (E.TypeAnnotation (nameToString name)) ) <$> translateType ty
 translateDec (ForeignD frn) = unImplemented "FFI declarations"
 
 
