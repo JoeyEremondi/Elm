@@ -26,19 +26,19 @@ module Elm.Haskelm.Quasi
       --
       -- A usage example for both type-safe (Yesod) and standard path segment (Happstack)
       -- URLs is provided in the Examples folder in the Git repository.
-      elm
-    , elmFile
+      --elm
+    --, elmFile
     -- , elmFileReload
 
       -- * Datatypes
-    , Elm (..)
+    --, Elm (..)
 
       -- * Typeclass for interpolated variables
-    , ToElm (..)
+    --, ToElm (..)
 
       -- ** Rendering Functions
-    , renderElm
-    ,decHaskAndElm
+    --, renderElm
+    decHaskAndElm
 
     ) where
 
@@ -97,6 +97,7 @@ parseModule s =
     Left doc -> error $ "Elm quasi parse failed\n" ++ (show doc)
     Right (Module _ _ _ decs) -> decs
 
+{-
 getElmAST :: String -> Q Exp
 getElmAST s =  dataToExpQ (const Nothing)  (parseModule s)
 
@@ -105,6 +106,8 @@ getElmAST s =  dataToExpQ (const Nothing)  (parseModule s)
 elm :: QuasiQuoter
 elm = QuasiQuoter { quoteExp = getElmAST
     }
+-}
+
 
 --Declares the given Haskell declarations, equivalent Elm stuff
 decHaskAndElm :: String -> DecsQ -> DecsQ
@@ -123,10 +126,12 @@ decHaskAndElm varName dq = do
 --
 -- Usage:
 -- @$(elmFile \"elm_source/index.elm\")@
+{-
 elmFile :: FilePath -> Q Exp
 elmFile fp = do
     s <- runIO $ readFile fp
     getElmAST s
+-}
 
 --TODO do reloading
 {-

@@ -1,7 +1,5 @@
 module SourceSyntax.Expression where
 
-{-# LANGUAGE DeriveDataTypeable #-}
-
 import Data.List (intercalate)
 import SourceSyntax.PrettyPrint
 import Text.PrettyPrint as P
@@ -10,8 +8,6 @@ import qualified SourceSyntax.Location as Location
 import qualified SourceSyntax.Pattern as Pattern
 import qualified SourceSyntax.Type as Type
 import qualified SourceSyntax.Literal as Literal
-
-import Data.Data
 
 type LExpr tipe var = Location.Located (Expr tipe var)
 data Expr t v
@@ -32,12 +28,12 @@ data Expr t v
     | Modify (LExpr t v) [(String, LExpr t v)]
     | Record [(String, LExpr t v)]
     | Markdown String String [LExpr t v]
-      deriving (Eq, Data, Typeable)
+      deriving (Eq)
 
 data Def tipe var
     = Def Pattern.Pattern (LExpr tipe var)
     | TypeAnnotation String Type.Type
-      deriving (Eq, Show, Typeable, Data)
+      deriving (Eq, Show)
 
 tuple es = Data ("_Tuple" ++ show (length es)) es
 

@@ -38,13 +38,15 @@ library
                      Elm.Haskelm.EToH Elm.Haskelm.Test Elm.Haskelm.Test2
     exposed: True
     buildable: True
-    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable MultiWayIf
+    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable StandaloneDeriving
+                MultiWayIf
     hs-source-dirs: compiler
-    other-modules: Elm.Haskelm.HToE SourceSyntax.Declaration
-                   SourceSyntax.Expression SourceSyntax.Helpers SourceSyntax.Literal
-                   SourceSyntax.Location SourceSyntax.Module SourceSyntax.Pattern
-                   SourceSyntax.PrettyPrint SourceSyntax.Type Generate.JavaScript
-                   Generate.Noscript Generate.Markdown Generate.Html Generate.Cases
+    other-modules: Elm.Haskelm.HToE
+                   SourceSyntax.Declaration SourceSyntax.Expression
+                   SourceSyntax.Helpers SourceSyntax.Literal SourceSyntax.Location
+                   SourceSyntax.Module SourceSyntax.Pattern SourceSyntax.PrettyPrint
+                   SourceSyntax.Type Generate.JavaScript Generate.Noscript
+                   Generate.Markdown Generate.Html Generate.Cases
                    Transform.Canonicalize Transform.Check Transform.SafeNames
                    Transform.SortDefinitions Transform.Substitute Transform.Optimize
                    Metadata.Prelude InterfaceSerialization Parse.Binop
@@ -68,13 +70,15 @@ executable elm
                    template-haskell -any, shakespeare -any
     main-is: Compiler.hs
     buildable: True
-    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable MultiWayIf
+    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable StandaloneDeriving
+                MultiWayIf
     hs-source-dirs: compiler
-    other-modules: Elm.Haskelm.HToE SourceSyntax.Declaration
-                   SourceSyntax.Expression SourceSyntax.Helpers SourceSyntax.Literal
-                   SourceSyntax.Location SourceSyntax.Module SourceSyntax.Pattern
-                   SourceSyntax.PrettyPrint SourceSyntax.Type Generate.JavaScript
-                   Generate.Noscript Generate.Markdown Generate.Html Generate.Cases
+    other-modules:  Elm.Haskelm.HToE
+                   SourceSyntax.Declaration SourceSyntax.Expression
+                   SourceSyntax.Helpers SourceSyntax.Literal SourceSyntax.Location
+                   SourceSyntax.Module SourceSyntax.Pattern SourceSyntax.PrettyPrint
+                   SourceSyntax.Type Generate.JavaScript Generate.Noscript
+                   Generate.Markdown Generate.Html Generate.Cases
                    Transform.Canonicalize Transform.Check Transform.SafeNames
                    Transform.SortDefinitions Transform.Substitute Transform.Optimize
                    Metadata.Prelude InterfaceSerialization Parse.Binop
@@ -95,14 +99,15 @@ executable elm-doc
                    pandoc >=1.10, parsec >=3.1.1, pretty -any, text -any
     main-is: Docs.hs
     buildable: True
-    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable MultiWayIf
+    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable StandaloneDeriving
+                MultiWayIf
     hs-source-dirs: compiler
-    other-modules: Elm.Haskelm.HToE SourceSyntax.Declaration
-                   SourceSyntax.Expression SourceSyntax.Helpers SourceSyntax.Literal
-                   SourceSyntax.Location SourceSyntax.Module SourceSyntax.Pattern
-                   SourceSyntax.PrettyPrint SourceSyntax.Type Parse.Binop
-                   Parse.Declaration Parse.Expression Parse.Helpers Parse.Literal
-                   Parse.Module Parse.Pattern Parse.Type
+    other-modules: Elm.Haskelm.HToE
+                   SourceSyntax.Declaration SourceSyntax.Expression
+                   SourceSyntax.Helpers SourceSyntax.Literal SourceSyntax.Location
+                   SourceSyntax.Module SourceSyntax.Pattern SourceSyntax.PrettyPrint
+                   SourceSyntax.Type Parse.Binop Parse.Declaration Parse.Expression
+                   Parse.Helpers Parse.Literal Parse.Module Parse.Pattern Parse.Type
 
 test-suite test-elm
     build-depends: base -any, directory -any, HTF -any
