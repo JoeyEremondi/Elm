@@ -42,7 +42,7 @@ library
     extensions: TemplateHaskell
                 MultiWayIf
     hs-source-dirs: compiler
-    other-modules: Elm.Haskelm.HToE
+    other-modules: Elm.Haskelm.HToE, Elm.Haskelm.BuildString
                    SourceSyntax.Declaration SourceSyntax.Expression
                    SourceSyntax.Helpers SourceSyntax.Literal SourceSyntax.Location
                    SourceSyntax.Module SourceSyntax.Pattern SourceSyntax.PrettyPrint

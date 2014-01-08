@@ -41,12 +41,12 @@ import Control.Applicative
 
 --Main entry point, and the only public function
 --TODO make others private
-toElm :: [Dec] -> Q [D.Declaration () ()]
-toElm decs = do
+toElm :: String -> [Dec] -> Q (M.Module () ())
+toElm name decs = do
   jsonDecs <- makeFromJson decs
   sumDecs <- giantSumType decs
-  retList <- concat <$> mapM translateDec (decs ++ jsonDecs ++ sumDecs)
-  return $ retList
+  elmDecs <- concat <$> mapM translateDec (decs ++ jsonDecs ++ sumDecs)
+  return $ M.Module [name] [] [] elmDecs --TODO imports/exports?
 
 --TODO remove
 unImplemented s = error $ "Translation of the The following haskell feature is not yet implemented: " ++ s

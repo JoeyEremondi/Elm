@@ -71,6 +71,10 @@ import SourceSyntax.PrettyPrint as Pretty
 --source parser
 import Language.Haskell.Meta.Parse
 
+import Elm.Haskelm.BuildString (buildAll)
+import Build.Flags (flags)
+
+
 -- | Translate a Haskell string into DecsQ
 stringToDecs :: String -> Q [Dec]
 stringToDecs s = case (parseDecs s) of
@@ -133,11 +137,14 @@ decHaskAndElm :: String -> DecsQ -> DecsQ
 decHaskAndElm varName dq = do
     decs <- dq
     --runIO $ putStrLn $ "Got pretty " ++ ( concat $ map (show . Pretty.pretty) $  HToE.toElm decs)
-    elmDecs <- HToE.toElm decs
-    let elmExp = liftString $ (intercalate "\n") $ map (show . Pretty.pretty) $ elmDecs
+    Module [name] export imports elmDecs <- HToE.toElm "Main" decs
+    let preamble = "module " ++ name ++ " where\n" --TODO imports, exports
+    let elmString = preamble ++ ( (intercalate "\n") $ map (show . Pretty.pretty) $ elmDecs )
+    let elmExp = liftString elmString
     let pat = varP (mkName varName)
     let body = normalB elmExp
     elmDec <- valD pat body []
+    elmJs <- buildAll flags [("Main", elmString)]
     return $ decs ++ [elmDec]
 
 -- |A Template Haskell function for embedding Elm code from external
