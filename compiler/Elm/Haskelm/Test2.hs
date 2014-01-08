@@ -6,7 +6,7 @@ module Elm.Haskelm.Test2 where
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-missing-fields #-}
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE TemplateHaskell, QuasiQuotes, MultiWayIf #-}
 
 import Elm.Haskelm.Quasi
 import Elm.Haskelm.EToH
@@ -40,6 +40,6 @@ $(decHaskAndElm "myGreatElmString"
         type MyInt = Int
     |])
 
-$(decsFromString "elmFromString" "data X = Y | Z" )   
+$(decsFromString "elmFromString" "data X = Y | Z" )
 
-$(decsFromFile "elmFromFile" "test.hst" )   
+$(decsFromFile "elmFromFile" "test.hst" )

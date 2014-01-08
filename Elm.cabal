@@ -31,14 +31,15 @@ library
                    indents -any, language-ecmascript >=0.15 && <1.0, mtl >=2,
                    pandoc >=1.10, parsec >=3.1.1, pretty -any, text -any,
                    transformers >=0.2, union-find -any, unordered-containers -any,
-                   shakespeare -any, template-haskell -any, haskell-src-meta
+                   shakespeare -any, template-haskell -any, haskell-src-meta -any,
+                   vector, th-desugar
     exposed-modules: Elm.Internal.Dependencies
                      Elm.Internal.Documentation Elm.Internal.Name Elm.Internal.Paths
                      Elm.Internal.Utils Elm.Internal.Version Elm.Haskelm.Quasi
                      Elm.Haskelm.EToH Elm.Haskelm.Test Elm.Haskelm.Test2
     exposed: True
     buildable: True
-    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable StandaloneDeriving
+    extensions: TemplateHaskell
                 MultiWayIf
     hs-source-dirs: compiler
     other-modules: Elm.Haskelm.HToE
@@ -70,10 +71,8 @@ executable elm
                    template-haskell -any, shakespeare -any
     main-is: Compiler.hs
     buildable: True
-    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable StandaloneDeriving
-                MultiWayIf
     hs-source-dirs: compiler
-    other-modules:  Elm.Haskelm.HToE
+    other-modules:
                    SourceSyntax.Declaration SourceSyntax.Expression
                    SourceSyntax.Helpers SourceSyntax.Literal SourceSyntax.Location
                    SourceSyntax.Module SourceSyntax.Pattern SourceSyntax.PrettyPrint
@@ -99,10 +98,8 @@ executable elm-doc
                    pandoc >=1.10, parsec >=3.1.1, pretty -any, text -any
     main-is: Docs.hs
     buildable: True
-    extensions: TemplateHaskell QuasiQuotes DeriveDataTypeable StandaloneDeriving
-                MultiWayIf
     hs-source-dirs: compiler
-    other-modules: Elm.Haskelm.HToE
+    other-modules:
                    SourceSyntax.Declaration SourceSyntax.Expression
                    SourceSyntax.Helpers SourceSyntax.Literal SourceSyntax.Location
                    SourceSyntax.Module SourceSyntax.Pattern SourceSyntax.PrettyPrint

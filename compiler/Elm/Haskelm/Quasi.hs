@@ -4,6 +4,7 @@
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-missing-fields #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE TemplateHaskell, QuasiQuotes, MultiWayIf #-}
 
 -- | This module contains Shakespearean (see "Text.Shakespeare") templates for Elm.
 -- It introduces type-safe compile-time variable and URL interpolation. A typeclass

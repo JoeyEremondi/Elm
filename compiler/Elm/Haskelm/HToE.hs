@@ -28,6 +28,13 @@ import qualified SourceSyntax.Pattern as P
 import qualified SourceSyntax.Type as T
 import qualified SourceSyntax.Variable as V
 
+--import qualified Elm.Haskelm.Json as J
+--import qualified Data.Aeson as A
+
+import Language.Haskell.TH.Desugar.Sweeten
+import Language.Haskell.TH.Desugar
+{-# LANGUAGE TemplateHaskell, QuasiQuotes, MultiWayIf #-}
+
 --import Parse.Expression (makeFunction)
 
 import Control.Applicative
@@ -36,8 +43,9 @@ import Control.Applicative
 --TODO make others private
 toElm :: [Dec] -> Q [D.Declaration () ()]
 toElm decs = do
-  retList <- concat <$> mapM translateDec decs
-  return retList
+  jsonDecs <- makeFromJson decs
+  retList <- concat <$> mapM translateDec (decs ++ jsonDecs)
+  return $ retList
 
 --TODO remove
 unImplemented s = error $ "Translation of the The following haskell feature is not yet implemented: " ++ s
@@ -110,10 +118,10 @@ translateDec (ValD pat body _where)  = do
     return $ single $ D.Definition $ E.Def ePat (Lo.none eBody)
 
 
-translateDec (DataD [] name tyBindings ctors names) = do
+translateDec dec@(DataD [] name tyBindings ctors names) = do
     --jsonDecs <- deriveFromJSON defaultOptions name
     eCtors <- mapM translateCtor ctors
-    return $ single $ D.Datatype eName eTyVars eCtors
+    return $ [ D.Datatype eName eTyVars eCtors] 
     where
         eName = nameToString name
         eTyVars = map (nameToString . tyVarToName) tyBindings
@@ -213,6 +221,12 @@ Currently supported: Variables, literals
 -}
 translateExpression :: Exp -> Q (E.Expr t v)
 
+--TODO multi pattern exp?
+translateExpression (LamE [pat] expBody) = do
+  ePat <- translatePattern pat
+  eBody <- translateExpression expBody
+  return $ E.Lambda ePat (Lo.none eBody)
+
 translateExpression (VarE name) =  return $ E.Var $ nameToString name
 
 --Just treat constructor as variable --TODO is this okay?
@@ -276,6 +290,9 @@ translateExpression (InfixE (Just e1) op (Just e2)) = do
 
 --Just ignore signature
 translateExpression (SigE exp _) = translateExpression exp
+
+--Just ignore signature
+translateExpression e = unImplemented $ "Misc expression " ++ (show e)
 
 --------------------------------------------------------------------------
 -- |Translate a literal value from Haskell to Elm
@@ -382,3 +399,122 @@ translateType t = do
             return $ T.listOf (et)
           _ -> unImplemented "misc types"
 
+          
+------------------------------------------------------------------------------------
+--Helpers to make to and fromJson functions
+
+-- | Build the AST for the base-cases, translating primitive types, lists, tuples, etc.
+makeJsonCase0 (jCtor, ctorName) = Match (ConP (mkName jCtor) [] ) (NormalB $ (ConE (mkName ctorName)) ) [] 
+makeJsonCase1 (jCtor, varName, ctorName) = Match (ConP (mkName jCtor) [VarP (mkName varName)]) (NormalB $ AppE (ConE (mkName ctorName)) (VarE (mkName varName))) [] 
+
+jsonCase :: [Match]
+jsonCase = (map makeJsonCase1 list1) ++ (map makeJsonCase0 list0)
+  where
+    list1 = [("Array", "lst", "FromJSON_List"),
+             ("Number", "n", "FromJSON_Int"),
+             ("String", "s", "FromJSON_List"),
+             ("Boolean", "b", "FromJSON_List")]
+    list0 = [("Null", "FromJSON_Null")]
+
+{-
+[|case json of
+Array lst -> FromJson_List $ map fromJson lst
+Number n -> FromJson_Int  n --TODO int vs float?
+Null -> FromJSON_Null
+String s -> FromJson_String s
+Boolean b -> FromJson_Bool b
+
+|]
+-}
+
+-- | Filter function to test of a dec is a data
+isData :: Dec -> Bool
+isData (DataD _ _ _ _ _) = True
+isData _ = False
+
+-- | Expression for the fromJson function
+fromJson :: Exp
+fromJson = VarE (mkName "fromJson")
+
+-- | The variable representing the current Json argument
+json :: Exp
+json = VarE (mkName "json")
+
+jsonPat :: Pat
+jsonPat = VarP (mkName "json") 
+
+-- | Variable for the getter function getting the nth variable from a Json
+nthVar :: Exp
+nthVar = VarE (mkName "nthVar")
+
+-- | Variable for the getter function getting the nth variable from a Json
+jsonType :: Exp
+jsonType = VarE (mkName "getType")
+
+-- | Variable for the getter function getting the nth variable from a Json
+jsonCtor :: Exp
+jsonCtor = VarE (mkName "getCtor")
+
+-- | Expression getting the nth subvariable from a JSON object
+getNthVar :: String -> Exp
+getNthVar nstr = AppE (AppE nthVar json ) (LitE $ StringL nstr)
+
+getType :: Exp
+getType = (AppE jsonType json ) 
+
+getCtor :: Exp
+getCtor = (AppE jsonCtor json )
+
+-- |The String argument of the JSON "type" property denoting a given ADT
+typeString :: Name -> Q String
+typeString name = return $ "FromJson_" ++ nameToString name
+
+-- |The Pattern to unbox a value into its type from the massive sum type
+-- | the second argument is the name to bind the value to
+unJsonPat :: Name -> Name -> Q Pat
+unJsonPat typeName nameToBind = do
+  typeCtor <- mkName <$> typeString typeName
+  return $ ConP (typeCtor) [VarP nameToBind]
+  
+        
+matchForCtor :: Con -> Q Match        
+matchForCtor (NormalC name types) = do
+  let matchPat = LitP $ StringL $ nameToString name
+  (subNames, subDecs) <- unzip <$> mapM getSubJson (zip (map snd types) [1,2..])
+  let body = NormalB $ LetE subDecs (applyArgs subNames ctorExp)
+  return $ Match matchPat body []
+  where
+    ctorExp = ConE name
+    applyArgs :: [Name] -> Exp -> Exp
+    applyArgs [] accum = accum
+    applyArgs (h:t) accum = applyArgs t $ AppE accum (VarE h)
+    
+    
+getSubJson :: (Type, Int) -> Q (Name, Dec)
+getSubJson (ConT name, n) = do
+  subName <- newName "subVar"
+  subLeftHand <- unJsonPat name subName
+  let subRightHand = NormalB $ AppE fromJson (getNthVar $ show n)
+  return (subName, ValD subLeftHand subRightHand [])
+
+matchForType :: Dec -> Q Match
+matchForType dec@(DataD _ name _ ctors []) = do
+  let matchPat = LitP $ StringL $ nameToString name
+  ctorMatches <- mapM matchForCtor ctors
+  let typeBody = NormalB $ CaseE jsonCtor ctorMatches
+  jsonName <- newName "typedJson"
+  typeCtor <- mkName <$> typeString name
+  let typeBodyDec = ValD (VarP $ jsonName) typeBody []
+  let ret = AppE (ConE typeCtor) (VarE jsonName)
+  let body = NormalB $ LetE [typeBodyDec] ret
+  return $ Match matchPat body []
+  
+makeFromJson :: [Dec] -> Q [Dec]
+makeFromJson allDecs = do
+  let decs = filter isData allDecs
+  typeMatches <- mapM matchForType decs
+  let objectBody = NormalB $ CaseE getType typeMatches
+  let objectMatch = Match WildP objectBody []
+  let body = NormalB $ CaseE json (jsonCase ++ [objectMatch])
+  return [ FunD (mkName "fromJson") [Clause [jsonPat] body []] ]
+  
