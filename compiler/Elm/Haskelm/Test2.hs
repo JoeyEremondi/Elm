@@ -18,11 +18,13 @@ import Elm.Haskelm.Test
 
 $(decHaskAndElm "myGreatElmString"
     [d|
-        data Foo = Baz Int | Bar String
+        data Foo = Baz [Int] | Bar String | Biz (Int, Int, String)
 
+        data Foo2 = TheBar | TheBaz
+        
         unFoo x = case x of
             Baz x -> Bar "3"
-            Bar y -> Baz 4
+            Bar y -> Baz [4]
 
         x :: Int
         x = 3 + 4 - 5 * 67 `mod` 8
