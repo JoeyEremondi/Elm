@@ -132,19 +132,28 @@ decsFromFile varName filePath = do
   decString <- runIO $ readFile filePath
   decHaskAndElm varName (stringToDecs decString)
 
+baseCode =  "getType (Object d) = case (Dict.lookup d \"__type\") of (Just t) -> t\n" 
+               ++ "getCtor (Object d) = case (Dict.lookup d \"__ctor\") of (Just t) -> t\n"
+               ++ "nthVar (Object d) n= case (Dict.lookup d (show n)) of (Just t) -> t\n"
+               ++ "mapJson f (Array l) = map f l\n"
+               ++ "makeList  (Array l) = l\n"
+  
 --Declares the given Haskell declarations, equivalent Elm stuff
 decHaskAndElm :: String -> DecsQ -> DecsQ
 decHaskAndElm varName dq = do
     decs <- dq
     --runIO $ putStrLn $ "Got pretty " ++ ( concat $ map (show . Pretty.pretty) $  HToE.toElm decs)
     Module [name] export imports elmDecs <- HToE.toElm "Main" decs
-    let preamble = "module " ++ name ++ " where\n" --TODO imports, exports
+    let preamble = "module " ++ name ++ " where\nimport open Json\nimport Dict\n" ++ baseCode --TODO imports, exports
     let elmString = preamble ++ ( (intercalate "\n") $ map (show . Pretty.pretty) $ elmDecs )
     let elmExp = liftString elmString
     let pat = varP (mkName varName)
     let body = normalB elmExp
+    runIO $ putStrLn $ concat $ map pprint (decs )
     elmDec <- valD pat body []
-    elmJs <- runIO $ buildAll  [("Main.elm", elmString)] "Main.elm"
+    runIO $ putStrLn "****************************************\nStarting Elm Compilation"
+    runIO $ buildAll  [("Main.elm", elmString)] "Main.elm"
+    runIO $ putStrLn "****************************************\nEnding Elm Compilation"
     return $ decs ++ [elmDec]
 
 -- |A Template Haskell function for embedding Elm code from external

@@ -409,13 +409,14 @@ makeJsonCase0 (jCtor, ctorName) = Match (ConP (mkName jCtor) [] ) (NormalB $ (Co
 makeJsonCase1 (jCtor, varName, ctorName) = Match (ConP (mkName jCtor) [VarP (mkName varName)]) (NormalB $ AppE (ConE (mkName ctorName)) (VarE (mkName varName))) [] 
 
 jsonCase :: [Match]
-jsonCase = (map makeJsonCase1 list1) ++ (map makeJsonCase0 list0)
+jsonCase = (map makeJsonCase1 list1) ++ (map makeJsonCase0 list0) ++ [listCase]
   where
-    list1 = [("Array", "lst", "FromJSON_List"),
+    list1 = [--("Array", "lst", "FromJSON_List"), --TODO can do types?
              ("Number", "n", "FromJSON_Int"),
-             ("String", "s", "FromJSON_List"),
-             ("Boolean", "b", "FromJSON_List")]
+             --("String", "s", "FromJSON_String"),
+             ("Boolean", "b", "FromJSON_Bool")]
     list0 = [("Null", "FromJSON_Null")]
+    listCase = Match (ConP (mkName "Array") [VarP (mkName "l")]) (NormalB $ AppE (ConE (mkName "FromJSON_List")) (AppE (AppE (VarE (mkName "map")) (VarE (mkName "fromJson"))) (VarE (mkName "l")) )) [] 
 
 {-
 [|case json of
@@ -468,11 +469,11 @@ getCtor = (AppE jsonCtor json )
 
 -- |The String argument of the JSON "type" property denoting a given ADT
 typeString :: Name -> Q String
-typeString name = return $ "FromJson_" ++ nameToString name
+typeString name = return $ "FromJSON_" ++ nameToString name
 
 -- | name of the function to convert FromJSON to arg type
 unTypeName :: Name -> Q Name
-unTypeName name = return $ mkName $ "unFromJson_" ++ nameToString name
+unTypeName name = return $ mkName $ "unFromJSON_" ++ nameToString name
 
 -- |The Pattern to unbox a value into its type from the massive sum type
 -- | the second argument is the name to bind the value to
@@ -567,11 +568,14 @@ makeFromJson allDecs = do
 giantSumType :: [Dec] -> Q [Dec]
 giantSumType allDecs = do
   let decs = filter isData allDecs
-  let typeNames = (map getTypeName decs) ++ ( map mkName ["Int", "Bool", "List", "String"])
+  let typeNames = (map getTypeName decs) ++ ( map mkName ["Int", "Bool", "String"]) --TODO lists?
+  
   ctorStrings <- (mapM typeString typeNames)
   let ctorNames = zip typeNames (map mkName ctorStrings)
+  let nullCtor = NormalC (mkName "FromJSON_Null") []
+  let listCtor = NormalC (mkName "FromJSON_List") [(NotStrict, AppT ListT (ConT $ mkName "FromJSON")) ]
   let ctors = map (\ (typeName, ctorName) -> NormalC ctorName [(NotStrict, ConT typeName)] ) ctorNames
-  return [ DataD [] (mkName "FromJSON") [] ctors [] ]
+  return [ DataD [] (mkName "FromJSON") [] (ctors ++ [nullCtor, listCtor]) [] ]
     where 
       getTypeName :: Dec -> Name
       getTypeName (DataD _ name _ _ _ ) = name

@@ -22,13 +22,13 @@ tuple es = PData ("_Tuple" ++ show (length es)) es
 
 instance Pretty Pattern where
   pretty pattern =
-   case pattern of
+   PP.parens $ case pattern of
      PVar x -> variable x
      PLiteral lit -> pretty lit
      PRecord fs -> PP.braces (commaCat $ map variable fs)
      PAlias x p -> prettyParens p <+> PP.text "as" <+> variable x
      PAnything -> PP.text "_"
-     PData "::" [hd,tl] -> PP.parens $ (pretty hd) <+> PP.text "::" <+> pretty tl
+     PData "::" [hd,tl] ->  (pretty hd) <+> PP.text "::" <+> pretty tl
        where isCons = case hd of
                         PData "::" _ -> True
                         _ -> False
