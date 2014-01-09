@@ -330,7 +330,7 @@ bool = [t| Bool |]
 
 isIntType t = do
   tint <- int
-  runIO $ putStrLn $ "Checking if int " ++ (show (t == tint))
+  --runIO $ putStrLn $ "Checking if int " ++ (show (t == tint))
   return (t == tint)
 
 isStringType t = do
@@ -486,7 +486,9 @@ matchForCtor :: Con -> Q Match
 matchForCtor (NormalC name types) = do
   let matchPat = LitP $ StringL $ nameToString name
   (subNames, subDecs) <- unzip <$> mapM getSubJson (zip (map snd types) [1,2..])
-  let body = NormalB $ LetE subDecs (applyArgs subNames ctorExp)
+  let body = if null subNames
+              then NormalB $ applyArgs subNames ctorExp
+              else NormalB $ LetE subDecs (applyArgs subNames ctorExp)
   return $ Match matchPat body []
   where
     ctorExp = ConE name

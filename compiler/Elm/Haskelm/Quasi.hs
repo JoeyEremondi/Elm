@@ -144,7 +144,7 @@ decHaskAndElm varName dq = do
     let pat = varP (mkName varName)
     let body = normalB elmExp
     elmDec <- valD pat body []
-    elmJs <- buildAll flags [("Main", elmString)]
+    elmJs <- runIO $ buildAll  [("Main.elm", elmString)] "Main.elm"
     return $ decs ++ [elmDec]
 
 -- |A Template Haskell function for embedding Elm code from external

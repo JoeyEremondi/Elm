@@ -76,6 +76,7 @@ instance Pretty (Expr t v) where
            pretty' (p,e) = pretty p <+> P.text "->" <+> pretty e
      Data "::" [hd,tl] -> pretty hd <+> P.text "::" <+> pretty tl
      Data "[]" [] -> P.text "[]"
+     Data ('_':'T':'u':'p':'l':'e':num) es -> P.parens (commaCat (map pretty es))
      Data name es -> P.hang (P.text name) 2 (P.sep (map prettyParens es))
      Access e x -> prettyParens e <> P.text "." <> variable x
      Remove e x -> P.braces (pretty e <+> P.text "-" <+> variable x)
