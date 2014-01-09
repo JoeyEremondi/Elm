@@ -28,6 +28,7 @@ import qualified SourceSyntax.Pattern as P
 import qualified SourceSyntax.Type as T
 import qualified SourceSyntax.Variable as V
 
+import Data.List (isPrefixOf)
 --import qualified Elm.Haskelm.Json as J
 --import qualified Data.Aeson as A
 
@@ -74,7 +75,13 @@ tyVarToName (KindedTV n _ ) = n
 --So that we can modify if need be
 --Right now is just a synonym
 nameToString :: Name -> String
-nameToString = nameBase--TODO fancier?
+nameToString name = 
+  case (nameModule name) of
+    Nothing -> nameBase name--TODO fancier?
+    Just (base) -> if isPrefixOf "GHC." base
+                      then nameBase name
+                      else showName name
+
 
 -- |Translate a constructor into a list of Strings and type-lists,
 -- Which Elm uses for its internal representation of constructors
@@ -412,11 +419,11 @@ jsonCase :: [Match]
 jsonCase = (map makeJsonCase1 list1) ++ (map makeJsonCase0 list0) ++ [listCase]
   where
     list1 = [--("Array", "lst", "FromJSON_List"), --TODO can do types?
-             ("Number", "n", "FromJSON_Int"),
-             --("String", "s", "FromJSON_String"),
-             ("Boolean", "b", "FromJSON_Bool")]
-    list0 = [("Null", "FromJSON_Null")]
-    listCase = Match (ConP (mkName "Array") [VarP (mkName "l")]) (NormalB $ AppE (ConE (mkName "FromJSON_List")) (AppE (AppE (VarE (mkName "map")) (VarE (mkName "fromJson"))) (VarE (mkName "l")) )) [] 
+             ("Json.Number", "n", "FromJSON_Float"),
+             ("Json.String", "s", "FromJSON_String"),
+             ("Json.Boolean", "b", "FromJSON_Bool")]
+    list0 = [("Json.Null", "FromJSON_Null")]
+    listCase = Match (ConP (mkName "Json.Array") [VarP (mkName "l")]) (NormalB $ AppE (ConE (mkName "FromJSON_List")) (AppE (AppE (VarE (mkName "map")) (VarE (mkName "fromJson"))) (VarE (mkName "l")) )) [] 
 
 {-
 [|case json of
@@ -516,7 +523,7 @@ unJsonType (AppT ListT t) = do
 --We make a lambda expression which applies the UnFromJSON function to each element of the tuple
 unJsonType t
   | isTupleType t = do
-
+      let fnComp = VarE $ mkName "."
       let tList = tupleTypeToList t
       let n = length tList
       --Generate the lambda to convert the list into a tuple
@@ -529,8 +536,16 @@ unJsonType t
       let makeList = VarE $ mkName "makeList"
       
       return $ InfixE (Just lambda) fnComp (Just makeList)
-      where
-        fnComp = VarE $ mkName "."
+  | otherwise = do
+      test <- isIntType t
+      case test of
+        True -> do
+          let fnComp = VarE $ mkName "."
+          argName <- newName "x"
+          lambdaPat <- unJsonPat (mkName "Int") argName
+          let unType = LamE [lambdaPat] (AppE (VarE (mkName "round")) (VarE argName) )
+          return $ (InfixE (Just unType) fnComp (Just fromJson))
+        
   
 getSubJson :: (Type, Int) -> Q (Name, Dec)
 -- We need special cases for lists and tuples, to unpack them
@@ -547,7 +562,7 @@ matchForType :: Dec -> Q Match
 matchForType dec@(DataD _ name _ ctors []) = do
   let matchPat = LitP $ StringL $ nameToString name
   ctorMatches <- mapM matchForCtor ctors
-  let typeBody = NormalB $ CaseE jsonCtor ctorMatches
+  let typeBody = NormalB $ CaseE getCtor ctorMatches
   jsonName <- newName "typedJson"
   typeCtor <- mkName <$> typeString name
   let typeBodyDec = ValD (VarP $ jsonName) typeBody []
@@ -568,7 +583,7 @@ makeFromJson allDecs = do
 giantSumType :: [Dec] -> Q [Dec]
 giantSumType allDecs = do
   let decs = filter isData allDecs
-  let typeNames = (map getTypeName decs) ++ ( map mkName ["Int", "Bool", "String"]) --TODO lists?
+  let typeNames = (map getTypeName decs) ++ ( map mkName ["Int", "Float", "Bool", "String"]) --TODO lists?
   
   ctorStrings <- (mapM typeString typeNames)
   let ctorNames = zip typeNames (map mkName ctorStrings)

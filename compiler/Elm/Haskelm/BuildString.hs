@@ -22,7 +22,7 @@ import qualified System.IO.Temp as Temp
 
 
 
-buildAll :: [(String, String)] -> String -> IO ()
+buildAll :: [(String, String)] -> String -> IO String
 buildAll modules rootFile = do
   --Make the temp directory to do the compilation
   cd <- getCurrentDirectory
@@ -72,7 +72,7 @@ buildAll modules rootFile = do
        BS.writeFile targetFile code
        putStrLn "Done"
        
-       return code
+       return $ show code
        )
        
   
