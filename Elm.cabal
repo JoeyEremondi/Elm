@@ -1,5 +1,5 @@
 Name:                Elm
-Version:             0.10.1
+Version:             0.10.0.2
 Synopsis:            The Elm language module.
 Description:         Elm aims to make client-side web-development more pleasant.
                      It is a statically/strongly typed, functional reactive
@@ -94,8 +94,6 @@ Library
                        Elm.Haskelm.Test2,
                        Elm.Haskelm.HToE,
                        Elm.Haskelm.BuildString
-
-
   extensions:          TemplateHaskell MultiWayIf
   Build-depends:       aeson,
                        base >=4.2 && <5,
