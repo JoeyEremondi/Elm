@@ -62,17 +62,19 @@ buildAll modules rootFile = do
 
        js <- foldM appendToOutput BS.empty files
 
-       (extension, code) <-
-           if Flag.only_js flags
-           then do putStr "Generating JavaScript ... "
-                   return ("js", js)
-           else do putStr "Generating HTML ... "
-                   return (makeHtml js moduleName)
+       (extension, code) <- do
+           putStr "Generating JavaScript ... "
+           return ("js", js)
+           
 
        let targetFile = Utils.buildPath flags rootFile extension
        createDirectoryIfMissing True (takeDirectory targetFile)
        BS.writeFile targetFile code
-       putStrLn "Done" )
-  return ()
+       putStrLn "Done"
+       
+       return code
+       )
+       
+  
 
           
