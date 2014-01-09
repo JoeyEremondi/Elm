@@ -60,7 +60,6 @@ import qualified Parse.Parse as Parse
 
 import Language.Haskell.TH.Lib
 
-import Elm.Haskelm.EToH
 import qualified Elm.Haskelm.HToE as HToE
 
 import qualified Data.Map as Map
@@ -106,7 +105,7 @@ elmSettings = do
   , unwrap = unWrapExp
   }
 
-parseModule :: String -> [Declaration () ()]
+parseModule :: String -> [Declaration]
 parseModule s =
   let eMod = Parse.program (Map.fromList []) s
   in case eMod of

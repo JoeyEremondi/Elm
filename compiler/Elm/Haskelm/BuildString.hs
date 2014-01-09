@@ -29,7 +29,7 @@ buildAll modules rootFile = do
   --TODO remove
   Temp.withTempDirectory cd ".elm_temp" (\dir -> 
     let
-        flags = Flag.flags --TODo set default flags
+        flags = Flag.flags
         appendToOutput :: BS.ByteString -> FilePath -> IO BS.ByteString
         appendToOutput js filePath = do
           src <- BS.readFile (Utils.elmo flags filePath)
@@ -40,7 +40,7 @@ buildAll modules rootFile = do
         makeHtml js moduleName = ("html", BS.pack $ renderHtml html)
             where
               rtsPath = Maybe.fromMaybe Path.runtime (Flag.runtime flags)
-              html = Html.generate rtsPath (takeBaseName rootFile) (sources js) moduleName "" 
+              html = Html.generate rtsPath (takeBaseName rootFile) (sources js) moduleName ""
     in do
        --TODO remove
        mapM (uncurry writeFile) modules
@@ -51,27 +51,30 @@ buildAll modules rootFile = do
        
        
        let noPrelude = Flag.no_prelude flags
-       builtIns <- if noPrelude then return Map.empty else Prelude.interfaces
+       builtIns <- Prelude.interfaces noPrelude
 
        files <- if Flag.make flags
                 then getSortedDependencies (Flag.src_dir flags) builtIns rootFile
                 else return [rootFile]
 
-       (moduleName, interfaces) <-
+       (moduleName, _) <-
            File.build flags (length files) builtIns "" files
 
        js <- foldM appendToOutput BS.empty files
 
-       (extension, code) <- do
-           putStr "Generating JavaScript ... "
-           return ("js", js)
-           
+       (extension, code) <-
+           if Flag.only_js flags
+           then do putStr "Generating JavaScript ... "
+                   return ("js", js)
+           else do putStr "Generating HTML ... "
+                   return (makeHtml js moduleName)
 
        let targetFile = Utils.buildPath flags rootFile extension
        createDirectoryIfMissing True (takeDirectory targetFile)
        BS.writeFile targetFile code
        putStrLn "Done"
-       
+
+
        return $ show code
        )
        

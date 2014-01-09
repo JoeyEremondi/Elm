@@ -26,7 +26,7 @@ import qualified SourceSyntax.Literal as L
 import qualified SourceSyntax.Location as Lo
 import qualified SourceSyntax.Pattern as P
 import qualified SourceSyntax.Type as T
-import qualified SourceSyntax.Variable as V
+--import qualified SourceSyntax.Variable as V
 
 import Data.List (isPrefixOf)
 --import qualified Elm.Haskelm.Json as J
@@ -42,7 +42,7 @@ import Control.Applicative
 
 --Main entry point, and the only public function
 --TODO make others private
-toElm :: String -> [Dec] -> Q (M.Module () ())
+toElm :: String -> [Dec] -> Q (M.Module D.Declaration)
 toElm name decs = do
   jsonDecs <- makeFromJson decs
   sumDecs <- giantSumType decs
@@ -62,7 +62,7 @@ TODO return a module?
 -}
 
 -- |Stolen from Parse.Expression so we don't have to change any internal Elm code
-makeFunction :: [P.Pattern] -> E.LExpr t v -> E.LExpr t v
+makeFunction :: [P.Pattern] -> E.LExpr -> E.LExpr
 makeFunction args body@(Lo.L s _) =
   foldr (\arg body' -> Lo.L s $ E.Lambda arg body') body args
 
@@ -110,7 +110,7 @@ single a = [a]
   TODO make a special error for non-supported features
 -}
 
-translateDec:: Dec -> Q [D.Declaration () () ]
+translateDec:: Dec -> Q [D.Declaration]
 
 --TODO translate where decs into elm let-decs
 --TODO what about when more than one clause?
@@ -118,18 +118,18 @@ translateDec (FunD name [Clause patList body _where])  = do
     let eName = nameToString name
     eBody <- translateBody body
     ePats <- mapM translatePattern patList
-    return $ single $ D.Definition $ E.Def (P.PVar eName) (makeFunction ePats (Lo.none eBody))
+    return $ single $ D.Definition $ E.Definition (P.PVar eName) (makeFunction ePats (Lo.none eBody)) Nothing --TODO what is maybe arg?
 
 translateDec (ValD pat body _where)  = do
     eBody <- translateBody body
     ePat <- translatePattern pat
-    return $ single $ D.Definition $ E.Def ePat (Lo.none eBody)
+    return $ single $ D.Definition $ E.Definition ePat (Lo.none eBody) Nothing --TODO what is maybe arg?
 
 
 translateDec dec@(DataD [] name tyBindings ctors names) = do
     --jsonDecs <- deriveFromJSON defaultOptions name
     eCtors <- mapM translateCtor ctors
-    return $ [ D.Datatype eName eTyVars eCtors] 
+    return $ [ D.Datatype eName eTyVars eCtors []] --TODO derivations?
     where
         eName = nameToString name
         eTyVars = map (nameToString . tyVarToName) tyBindings
@@ -144,12 +144,13 @@ translateDec (TySynD name tyBindings ty) = do
     let eName = nameToString name
     let eTyVars = map (nameToString . tyVarToName) tyBindings
     eTy <- translateType ty
-    return $ single $ D.TypeAlias eName eTyVars eTy
+    return $ single $ D.TypeAlias eName eTyVars eTy []
 
 translateDec (ClassD cxt name tyBindings funDeps decs ) = unImplemented "Class definitions"
 translateDec (InstanceD cxt ty decs) = unImplemented "Instance declarations"
 
-translateDec (SigD name ty) = (single . D.Definition . (E.TypeAnnotation (nameToString name)) ) <$> translateType ty
+--TODO fix signatures
+translateDec (SigD name ty) = return []--(single . D.Definition . (E.TypeAnnotation (nameToString name)) ) <$> translateType ty
 translateDec (ForeignD frn) = unImplemented "FFI declarations"
 
 
@@ -169,13 +170,13 @@ translateDec (TySynInstD name types theTy) = unImplemented "Type synonym instanc
 -- | Convert a declaration to an elm Definition
 -- Only works on certain types of declarations TODO document which
 
-translateDef :: Dec -> Q (E.Def t v)
+translateDef :: Dec -> Q (E.Def)
 
 --TODO non-empty where?
 translateDef (ValD pat body _where) = do
     ePat <- translatePattern pat
     eExp <- translateBody body
-    return $ E.Def ePat (Lo.none eExp)
+    return $ E.Definition ePat (Lo.none eExp) Nothing
 
 translateDef d = unImplemented "Non-simple function/value definitions"
 
@@ -211,7 +212,7 @@ translatePattern _ = unImplemented "Misc patterns"
 --------------------------------------------------------------------------
 -- |Translate a function body into Elm
 -- Note that guarded bodies are currently unsupported
-translateBody  :: Body -> Q (E.Expr t v)
+translateBody  :: Body -> Q (E.Expr)
 translateBody (NormalB e) = translateExpression e
 
 -- | Expression helper function to convert a Var to a String
@@ -227,7 +228,7 @@ translateGuard _ = unImplemented "Pattern-match guards"
 {-|Translate a haskell Expression into Elm
 Currently supported: Variables, literals
 -}
-translateExpression :: Exp -> Q (E.Expr t v)
+translateExpression :: Exp -> Q (E.Expr)
 
 --TODO multi pattern exp?
 translateExpression (LamE [pat] expBody) = do

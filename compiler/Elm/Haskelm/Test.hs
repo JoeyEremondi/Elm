@@ -9,7 +9,6 @@ module Elm.Haskelm.Test where
 {-# LANGUAGE DeriveDataTypeable #-}
 
 import Elm.Haskelm.TH
-import Elm.Haskelm.EToH
 
 import SourceSyntax.Declaration
 

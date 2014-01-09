@@ -9,7 +9,6 @@ module Elm.Haskelm.Test2 where
 {-# LANGUAGE TemplateHaskell, QuasiQuotes, MultiWayIf #-}
 
 import Elm.Haskelm.TH
-import Elm.Haskelm.EToH
 import Elm.Haskelm.Test
 
 -- $(translate theTest)
