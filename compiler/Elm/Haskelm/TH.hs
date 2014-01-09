@@ -19,7 +19,7 @@ In order to support modules, we'll assume there's a single directory
 with a given path-name, all the elm-files
 -}
 
-module Elm.Haskelm.Quasi
+module Elm.Haskelm.TH
     ( -- * Functions
       -- ** Template-Reading Functions
       -- |These QuasiQuoters return functions of the type @(t -> 'Elm')@

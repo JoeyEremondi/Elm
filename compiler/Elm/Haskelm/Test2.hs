@@ -8,7 +8,7 @@ module Elm.Haskelm.Test2 where
 {-# OPTIONS_GHC -fno-warn-missing-fields #-}
 {-# LANGUAGE TemplateHaskell, QuasiQuotes, MultiWayIf #-}
 
-import Elm.Haskelm.Quasi
+import Elm.Haskelm.TH
 import Elm.Haskelm.EToH
 import Elm.Haskelm.Test
 

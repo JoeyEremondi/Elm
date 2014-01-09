@@ -8,7 +8,7 @@ module Elm.Haskelm.Test where
 {-# OPTIONS_GHC -fno-warn-missing-fields #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 
-import Elm.Haskelm.Quasi
+import Elm.Haskelm.TH
 import Elm.Haskelm.EToH
 
 import SourceSyntax.Declaration
