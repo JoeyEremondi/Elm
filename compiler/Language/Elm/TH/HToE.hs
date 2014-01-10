@@ -12,7 +12,7 @@
 --
 -----------------------------------------------------------------------------
 
-module Elm.Haskelm.HToE where
+module Language.Elm.TH.HToE where
 
 import Language.Haskell.TH.Syntax
 

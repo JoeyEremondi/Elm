@@ -1,15 +1,18 @@
-module Elm.Haskelm.Test2 where
+module Tests.TH where
 
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE  QuasiQuotes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -fno-warn-missing-fields #-}
+{-# LANGUAGE CPP #-} 
+{-# OPTIONS_GHC -ddump-splices #-}
 {-# LANGUAGE TemplateHaskell, QuasiQuotes, MultiWayIf #-}
 
-import Elm.Haskelm.TH
-import Elm.Haskelm.Test
+import Language.Elm.TH
+import Test.Framework
+import Test.Framework.Providers.HUnit (testCase)
+import Test.HUnit                     (Assertion, assertFailure, assertBool)
+
 
 -- $(translate theTest)
 
@@ -23,7 +26,7 @@ $(decHaskAndElm "myGreatElmString"
         
         unFoo x = case x of
             Baz x -> Bar "3"
-            Bar y -> Baz [4]
+            Bar y -> Baz [4] 
 
         x :: Int
         x = 3 + 4 - 5 * 67 `mod` 8
@@ -43,4 +46,5 @@ $(decHaskAndElm "myGreatElmString"
 
 $(decsFromString "elmFromString" "data X = Y | Z" )
 
-$(decsFromFile "elmFromFile" "test.hst" )
+$(decsFromFile "elmFromFile" "tests/test-files/test.hst" )
+

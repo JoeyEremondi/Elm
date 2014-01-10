@@ -1,4 +1,4 @@
-module Elm.Haskelm.BuildString where
+module Language.Elm.BuildString where
 
 import Control.Monad (foldM)
 import qualified Data.Map as Map
@@ -25,9 +25,10 @@ import qualified System.IO.Temp as Temp
 buildAll :: [(String, String)] -> String -> IO String
 buildAll modules rootFile = do
   --Make the temp directory to do the compilation
-  cd <- getCurrentDirectory
+  --cd <- getCurrentDirectory
+  --putStrLn $ " current dir " ++ cd
   --TODO remove
-  Temp.withTempDirectory cd ".elm_temp" (\dir -> 
+  Temp.withTempDirectory "" ".elm_temp" (\dir -> 
     let
         flags = Flag.flags
         appendToOutput :: BS.ByteString -> FilePath -> IO BS.ByteString
@@ -43,7 +44,8 @@ buildAll modules rootFile = do
               html = Html.generate rtsPath (takeBaseName rootFile) (sources js) moduleName ""
     in do
        --TODO remove
-       mapM (uncurry writeFile) modules
+       --mapM (uncurry writeFile) modules
+       cd <- getCurrentDirectory
        setCurrentDirectory dir
        
        --Copy all the files to the temp folder
@@ -74,6 +76,7 @@ buildAll modules rootFile = do
        BS.writeFile targetFile code
        putStrLn "Done"
 
+       setCurrentDirectory cd
 
        return $ show code
        )

@@ -19,7 +19,7 @@ In order to support modules, we'll assume there's a single directory
 with a given path-name, all the elm-files
 -}
 
-module Elm.Haskelm.TH
+module Language.Elm.TH
     ( -- * Functions
       -- ** Template-Reading Functions
       -- |These QuasiQuoters return functions of the type @(t -> 'Elm')@
@@ -60,7 +60,7 @@ import qualified Parse.Parse as Parse
 
 import Language.Haskell.TH.Lib
 
-import qualified Elm.Haskelm.HToE as HToE
+import qualified Language.Elm.TH.HToE as HToE
 
 import qualified Data.Map as Map
 import Data.List (intercalate)
@@ -70,9 +70,10 @@ import SourceSyntax.PrettyPrint as Pretty
 --source parser
 import Language.Haskell.Meta.Parse
 
-import Elm.Haskelm.BuildString (buildAll)
+import Language.Elm.BuildString (buildAll)
 import Build.Flags (flags)
 
+import System.Directory
 
 -- | Translate a Haskell string into DecsQ
 stringToDecs :: String -> Q [Dec]
@@ -128,6 +129,8 @@ decsFromString varName decString = decHaskAndElm varName (stringToDecs decString
 
 decsFromFile :: String -> String -> DecsQ
 decsFromFile varName filePath = do
+  cd <- runIO $  getCurrentDirectory
+  runIO $ putStrLn $ "CurrentDirectory " ++ cd
   decString <- runIO $ readFile filePath
   decHaskAndElm varName (stringToDecs decString)
 

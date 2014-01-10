@@ -36,7 +36,8 @@ Library
                        Elm.Internal.Paths,
                        Elm.Internal.Utils,
                        Elm.Internal.Version,
-                       Elm.Haskelm.TH
+                       Language.Elm.TH
+                       Language.Elm.BuildString
   Hs-Source-Dirs:      compiler
   other-modules:       SourceSyntax.Declaration,
                        SourceSyntax.Expression,
@@ -92,10 +93,7 @@ Library
                        Build.Source,
                        Build.Utils,
                        Paths_Elm,
-                       Elm.Haskelm.Test,
-                       Elm.Haskelm.Test2,
-                       Elm.Haskelm.HToE,
-                       Elm.Haskelm.BuildString
+                       Language.Elm.TH.HToE
   extensions: TemplateHaskell MultiWayIf
 
   Build-depends:       aeson,
@@ -245,9 +243,12 @@ Executable elm-doc
 
 Test-Suite test-elm
   Type:            exitcode-stdio-1.0
+  ghc-options:     -ddump-splices
+  extensions:      TemplateHaskell MultiWayIf
   Hs-Source-Dirs:  tests, compiler
   Main-is:         Main.hs
   other-modules:   Tests.Compiler
+                   Tests.TH
                    Tests.Property
                    Tests.Property.Arbitrary
                    SourceSyntax.Helpers
@@ -282,4 +283,10 @@ Test-Suite test-elm
                    text,
                    transformers >= 0.2,
                    union-find,
-                   unordered-containers
+                   unordered-containers,
+                   shakespeare,
+                   template-haskell,
+                   haskell-src-meta,
+                   vector,
+                   th-desugar,
+                   temporary
