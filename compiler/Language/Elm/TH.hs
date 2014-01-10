@@ -33,7 +33,9 @@ module Language.Elm.TH
     --, renderElm
     decHaskAndElm,
     decsFromString,
-    decsFromFile
+    decsFromFile,
+    stringToDecs,
+    toElmString
 
     ) where
 
@@ -85,7 +87,9 @@ toElm name decs = do
   elmDecs <- concat <$> mapM HToE.translateDec (decs ++ jsonDecs ++ sumDecs)
   return $ M.Module [name] [] [] elmDecs --TODO imports/exports?
 
-
+toElmString :: String -> [Dec] -> Q String
+toElmString name decs = moduleToString <$> toElm name decs
+  
 
 
 -- | Translate a Haskell string into DecsQ
@@ -111,15 +115,17 @@ baseCode =  "getType (Object d) = case (Dict.lookup \"__type\" d) of (Just (Json
                ++ "nthVar (Object d) n= case (Dict.lookup (show n) d) of (Just val) -> val\n"
                ++ "mapJson f (Array l) = map f l\n"
                ++ "makeList  (Array l) = l\n"
-  
+
+moduleToString (Module [name] export imports elmDecs ) =
+  let preamble = "module " ++ name ++ " where\nimport open Json\nimport Json\nimport Dict\n" ++ baseCode --TODO imports, exports
+  in preamble ++ intercalate "\n" (map (show . Pretty.pretty) elmDecs)               
+               
 --Declares the given Haskell declarations, equivalent Elm stuff
 decHaskAndElm :: String -> DecsQ -> DecsQ
 decHaskAndElm varName dq = do
     decs <- dq
     --runIO $ putStrLn $ "Got pretty " ++ ( concat $ map (show . Pretty.pretty) $  HToE.toElm decs)
-    Module [name] export imports elmDecs <- toElm "Main" decs
-    let preamble = "module " ++ name ++ " where\nimport open Json\nimport Json\nimport Dict\n" ++ baseCode --TODO imports, exports
-    let elmString = preamble ++ intercalate "\n" (map (show . Pretty.pretty) elmDecs)
+    elmString <- toElmString "Main" decs
     let elmExp = liftString elmString
     let pat = varP (mkName varName)
     let body = normalB elmExp

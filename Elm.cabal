@@ -242,7 +242,50 @@ Executable elm-doc
                        pretty,
                        text,
                        union-find
-
+Executable haskelm
+  Main-is:             Haskelm.hs
+  Hs-Source-Dirs:      compiler
+  extensions:	       TemplateHaskell
+  other-modules:       SourceSyntax.Declaration,
+                       SourceSyntax.Expression,
+                       SourceSyntax.Helpers,
+                       SourceSyntax.Literal,
+                       SourceSyntax.Location,
+                       SourceSyntax.Module,
+                       SourceSyntax.Pattern,
+                       SourceSyntax.PrettyPrint,
+                       SourceSyntax.Type,
+                       Language.Elm.TH.HToE
+                       Language.Elm.TH.Json
+                       Language.Elm.TH.Util
+                       Language.Elm.TH,
+                       Language.Elm.BuildString
+  Build-depends:       aeson,
+                       base >=4.2 && <5,
+                       binary >= 0.6.4.0,
+                       blaze-html == 0.5.* || == 0.6.*,
+                       blaze-markup,
+                       bytestring,
+                       cmdargs,
+                       containers >= 0.3,
+                       directory,
+                       filepath,
+                       indents,
+                       language-ecmascript >=0.15 && < 1.0,
+                       mtl >= 2,
+                       pandoc >= 1.10,
+                       parsec >= 3.1.1,
+                       pretty,
+                       text,
+                       transformers >= 0.2,
+                       union-find,
+                       unordered-containers,
+                       shakespeare,
+                       template-haskell,
+                       haskell-src-meta,
+                       vector,
+                       th-desugar,
+                       temporary
 Test-Suite test-elm
   Type:            exitcode-stdio-1.0
   ghc-options:     -ddump-splices
