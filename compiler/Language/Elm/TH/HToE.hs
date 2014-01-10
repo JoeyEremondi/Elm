@@ -44,7 +44,9 @@ import Control.Applicative
 --TODO make others private
 toElm :: String -> [Dec] -> Q (M.Module D.Declaration)
 toElm name decs = do
-  jsonDecs <- makeFromJson decs
+  fromJsonDecs <- makeFromJson decs
+  toJsonDecs <- makeToJson decs
+  let jsonDecs = fromJsonDecs ++ toJsonDecs
   sumDecs <- giantSumType decs
   elmDecs <- concat <$> mapM translateDec (decs ++ jsonDecs ++ sumDecs)
   return $ M.Module [name] [] [] elmDecs --TODO imports/exports?
@@ -416,6 +418,18 @@ translateType t = do
 makeJsonCase0 (jCtor, ctorName) = Match (ConP (mkName jCtor) [] ) (NormalB $ (ConE (mkName ctorName)) ) [] 
 makeJsonCase1 (jCtor, varName, ctorName) = Match (ConP (mkName jCtor) [VarP (mkName varName)]) (NormalB $ AppE (ConE (mkName ctorName)) (VarE (mkName varName))) [] 
 
+unJsonCase :: [Match]
+unJsonCase = (map makeJsonCase1 list1) ++ (map makeJsonCase0 list0) ++ [intCase]
+  where
+    list1 = [--("Array", "lst", "FromJSON_List"), --TODO can do types?
+             ( "FromJSON_Float", "n",  "Json.Number"),
+             ("FromJSON_String", "s", "Json.String"),
+             ("FromJSON_Bool", "b", "Json.Boolean")]
+    list0 = [("FromJSON_Null", "Json.Null")]
+    intCase = Match (ConP (mkName "FromJSON_Int") [VarP (mkName "i")]) (NormalB $ AppE (ConE (mkName "Json.Number")) (AppE (VarE $ mkName "toFloat")(VarE (mkName "i")) ) ) []
+    --Can't encode lists directly
+    --listCase = Match (ConP (mkName "Json.Array") [VarP (mkName "l")]) (NormalB $ AppE (ConE (mkName "FromJSON_List")) (AppE (AppE (VarE (mkName "map")) (VarE (mkName "fromJson"))) (VarE (mkName "l")) )) [] 
+
 jsonCase :: [Match]
 jsonCase = (map makeJsonCase1 list1) ++ (map makeJsonCase0 list0) ++ [listCase]
   where
@@ -424,8 +438,8 @@ jsonCase = (map makeJsonCase1 list1) ++ (map makeJsonCase0 list0) ++ [listCase]
              ("Json.String", "s", "FromJSON_String"),
              ("Json.Boolean", "b", "FromJSON_Bool")]
     list0 = [("Json.Null", "FromJSON_Null")]
-    listCase = Match (ConP (mkName "Json.Array") [VarP (mkName "l")]) (NormalB $ AppE (ConE (mkName "FromJSON_List")) (AppE (AppE (VarE (mkName "map")) (VarE (mkName "fromJson"))) (VarE (mkName "l")) )) [] 
-
+    listCase = Match (ConP (mkName "Json.Array") [VarP (mkName "l")]) (NormalB $ AppE (ConE (mkName "FromJSON_List")) (AppE (AppE (VarE (mkName "map")) (VarE (mkName "fromJson"))) (VarE (mkName "l")) )) []     
+    
 {-
 [|case json of
 Array lst -> FromJson_List $ map fromJson lst
@@ -445,6 +459,10 @@ isData _ = False
 -- | Expression for the fromJson function
 fromJson :: Exp
 fromJson = VarE (mkName "fromJson")
+
+-- | Expression for the toJson function
+toJson :: Exp
+toJson = VarE (mkName "toJson")
 
 -- | The variable representing the current Json argument
 json :: Exp
@@ -490,27 +508,15 @@ unJsonPat typeName nameToBind = do
   typeCtor <- mkName <$> typeString typeName
   return $ ConP (typeCtor) [VarP nameToBind]
   
-        
-matchForCtor :: Con -> Q Match        
-matchForCtor (NormalC name types) = do
-  let matchPat = LitP $ StringL $ nameToString name
-  (subNames, subDecs) <- unzip <$> mapM getSubJson (zip (map snd types) [1,2..])
-  let body = if null subNames
-              then NormalB $ applyArgs subNames ctorExp
-              else NormalB $ LetE subDecs (applyArgs subNames ctorExp)
-  return $ Match matchPat body []
-  where
-    ctorExp = ConE name
-    applyArgs :: [Name] -> Exp -> Exp
-    applyArgs [] accum = accum
-    applyArgs (h:t) accum = applyArgs t $ AppE accum (VarE h)
+sumTypeCtor :: Name -> Q Name
+sumTypeCtor name = mkName <$> typeString name
 
 unJsonType :: Type -> Q Exp
 unJsonType (ConT name) = do
   argName <- newName "x"
   lambdaPat <- unJsonPat name argName
-  let unType = LamE [lambdaPat] (VarE argName)
-  return $ (InfixE (Just unType) fnComp (Just fromJson))
+  let unCtor = LamE [lambdaPat] (VarE argName)
+  return $ (InfixE (Just unCtor) fnComp (Just fromJson))
   where
     fnComp = VarE $ mkName "."
 
@@ -544,8 +550,8 @@ unJsonType t
           let fnComp = VarE $ mkName "."
           argName <- newName "x"
           lambdaPat <- unJsonPat (mkName "Int") argName
-          let unType = LamE [lambdaPat] (AppE (VarE (mkName "round")) (VarE argName) )
-          return $ (InfixE (Just unType) fnComp (Just fromJson))
+          let unCtor = LamE [lambdaPat] (AppE (VarE (mkName "round")) (VarE argName) )
+          return $ (InfixE (Just unCtor) fnComp (Just fromJson))
         
   
 getSubJson :: (Type, Int) -> Q (Name, Dec)
@@ -559,13 +565,29 @@ getSubJson (t, n) = do
   return (subName, ValD subLeftHand subRightHand [])
   
 
-matchForType :: Dec -> Q Match
-matchForType dec@(DataD _ name _ ctors []) = do
+  
+fromMatchForCtor :: Con -> Q Match        
+fromMatchForCtor (NormalC name types) = do
   let matchPat = LitP $ StringL $ nameToString name
-  ctorMatches <- mapM matchForCtor ctors
+  (subNames, subDecs) <- unzip <$> mapM getSubJson (zip (map snd types) [1,2..])
+  let body = if null subNames
+              then NormalB $ applyArgs subNames ctorExp
+              else NormalB $ LetE subDecs (applyArgs subNames ctorExp)
+  return $ Match matchPat body []
+  where
+    ctorExp = ConE name
+    applyArgs :: [Name] -> Exp -> Exp
+    applyArgs [] accum = accum
+    applyArgs (h:t) accum = applyArgs t $ AppE accum (VarE h)  
+  
+  
+fromMatchForType :: Dec -> Q Match
+fromMatchForType dec@(DataD _ name _ ctors []) = do
+  let matchPat = LitP $ StringL $ nameToString name
+  ctorMatches <- mapM fromMatchForCtor ctors
   let typeBody = NormalB $ CaseE getCtor ctorMatches
   jsonName <- newName "typedJson"
-  typeCtor <- mkName <$> typeString name
+  typeCtor <- sumTypeCtor name
   let typeBodyDec = ValD (VarP $ jsonName) typeBody []
   let ret = AppE (ConE typeCtor) (VarE jsonName)
   let body = NormalB $ LetE [typeBodyDec] ret
@@ -574,13 +596,117 @@ matchForType dec@(DataD _ name _ ctors []) = do
 makeFromJson :: [Dec] -> Q [Dec]
 makeFromJson allDecs = do
   let decs = filter isData allDecs
-  typeMatches <- mapM matchForType decs
+  typeMatches <- mapM fromMatchForType decs
   let objectBody = NormalB $ CaseE getType typeMatches
   let objectMatch = Match WildP objectBody []
   let body = NormalB $ CaseE json (jsonCase ++ [objectMatch])
   return [ FunD (mkName "fromJson") [Clause [jsonPat] body []] ]
 
   
+-----------------------------------------------------------------------
+--ToJSON deriving
+makeToJson :: [Dec] -> Q [Dec]
+makeToJson allDecs = do
+  let decs = filter isData allDecs
+  typeMatches <- mapM toMatchForType decs
+  --TODO remove jsonCase, put in equivalent
+  let body = NormalB $ CaseE json (unJsonCase ++ typeMatches)
+  return [ FunD (mkName "toJson") [Clause [jsonPat] body []] ]
+
+nNames :: Int -> String -> Q [Name]
+nNames n base = do
+  let varStrings = map (\n -> base ++ (show n)) [1..n]
+  mapM newName varStrings
+  
+toMatchForCtor :: Name -> Con -> Q Match        
+toMatchForCtor typeName (NormalC name types) = do
+  let n = length types
+  adtNames <- nNames n "adtVar"
+  jsonNames <- nNames n "jsonVar"
+  let adtPats = map VarP adtNames
+  let matchPat = ConP name adtPats
+  jsonDecs <- mapM makeSubJson (zip3 (map snd types) adtNames jsonNames)
+  dictName <- newName "objectDict"
+  dictDec <-  makeDict typeName name dictName jsonNames
+  let ret = AppE (VarE $ mkName "Json.Object") (VarE dictName)
+  let body = NormalB $ LetE (jsonDecs ++ [dictDec]) ret
+  return $ Match matchPat body []
+  where
+    ctorExp = ConE name
+    applyArgs :: [Name] -> Exp -> Exp
+    applyArgs [] accum = accum
+    applyArgs (h:t) accum = applyArgs t $ AppE accum (VarE h)  
+
+makeDict :: Name -> Name -> Name -> [Name] -> Q Dec    
+makeDict typeName ctorName dictName jsonNames = do
+  let leftSide = VarP dictName
+  let jsonExps = map VarE jsonNames
+  let fieldNames = map (LitE . StringL . show) [1 .. (length jsonNames)]
+  let tuples = map (\(field, json) -> TupE [field, json]) (zip fieldNames jsonExps)
+  let typeExp = LitE $ StringL $ (nameToString typeName)
+  let ctorExp = LitE $ StringL $ (nameToString ctorName)
+  let typeTuple = TupE [LitE $ StringL "type", AppE (VarE (mkName "Json.String")) typeExp ]
+  let ctorTuple = TupE [LitE $ StringL "ctor", AppE (VarE (mkName "Json.String")) ctorExp ]
+  let tupleList = ListE $ [typeTuple, ctorTuple] ++ tuples
+  let rightSide = NormalB $ AppE (VarE $ mkName "Dict.fromList") tupleList
+  return $ ValD leftSide rightSide []
+  
+  
+toMatchForType :: Dec -> Q Match
+toMatchForType dec@(DataD _ name _ ctors []) = do
+  varName <- newName "adt"
+  matchPat <- unJsonPat name varName
+  ctorMatches <- mapM (toMatchForCtor name) ctors
+  let body = NormalB $ CaseE (VarE varName) ctorMatches
+  return $ Match matchPat body []  
+
+makeSubJson :: (Type, Name, Name) -> Q Dec
+-- We need special cases for lists and tuples, to unpack them
+--TODO recursive case
+makeSubJson (t, adtName, jsonName) = do
+  funToApply <- pureJsonType t
+  let subLeftHand = VarP jsonName
+  let subRightHand = NormalB $ AppE funToApply (VarE adtName)
+  return $ ValD subLeftHand subRightHand []
+
+  
+pureJsonType :: Type -> Q Exp
+--Base case: if an ADT, just call toJson with the appropriate constructor
+pureJsonType (ConT name) = do
+  argName <- newName "adt"
+  typeCtor <- sumTypeCtor name
+  lambdaPat <- unJsonPat name argName
+  let addCtor = LamE [VarP argName] (AppE (ConE typeCtor) (VarE argName))
+  return $ (InfixE (Just toJson) fnComp (Just addCtor))
+  where
+    fnComp = VarE $ mkName "."
+
+pureJsonType (AppT ListT t) = do
+  subFun <- pureJsonType t
+  let listCtor = VarE $ mkName "Json.Array"
+  let mapVar = VarE $ mkName "map"
+  return $ (InfixE (Just listCtor ) fnComp (Just (AppE mapVar subFun)))
+  where
+    fnComp = VarE $ mkName "."
+
+--Unpack JSON into a tuple type
+--We convert the JSON to a list
+--We make a lambda expression which applies the UnFromJSON function to each element of the tuple
+pureJsonType t
+  | isTupleType t = do
+      let fnComp = VarE $ mkName "."
+      let tList = tupleTypeToList t
+      let n = length tList
+      --Generate the lambda to convert the list into a tuple
+      subFunList <- mapM pureJsonType tList
+      argNames <- mapM newName (map (("x" ++) . show) [1 .. n])
+      let argValues = map VarE argNames
+      let argPat = TupP $ map VarP argNames
+      --Get each tuple element as Json, then wrap them in a Json Array
+      let listExp = AppE (VarE $ mkName "Json.Array") (ListE $ map (\ (fn, arg) -> AppE fn arg) (zip subFunList argValues))
+      return $ LamE [argPat] listExp      
+  --Don't need special int case, that happens when actually boxing the Json
+-----------------------------------------------------------------------
 giantSumType :: [Dec] -> Q [Dec]
 giantSumType allDecs = do
   let decs = filter isData allDecs

@@ -44,7 +44,7 @@ buildAll modules rootFile = do
               html = Html.generate rtsPath (takeBaseName rootFile) (sources js) moduleName ""
     in do
        --TODO remove
-       --mapM (uncurry writeFile) modules
+       mapM (uncurry writeFile) modules
        cd <- getCurrentDirectory
        setCurrentDirectory dir
        
