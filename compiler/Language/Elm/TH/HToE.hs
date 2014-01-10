@@ -27,11 +27,8 @@ import qualified SourceSyntax.Literal as L
 import qualified SourceSyntax.Location as Lo
 import qualified SourceSyntax.Pattern as P
 import qualified SourceSyntax.Type as T
---import qualified SourceSyntax.Variable as V
 
 import Data.List (isPrefixOf)
---import qualified Elm.Haskelm.Json as J
---import qualified Data.Aeson as A
 
 import Language.Haskell.TH.Desugar.Sweeten
 import Language.Haskell.TH.Desugar
@@ -41,8 +38,8 @@ import Language.Haskell.TH.Desugar
 
 import Control.Applicative
 
---Main entry point, and the only public function
---TODO make others private
+-- | 'toElm' takes a 'String' module name and a list of Template Haskell declarations
+-- and generates a translated Elm AST module
 toElm :: String -> [Dec] -> Q (M.Module D.Declaration)
 toElm name decs = do
   fromJsonDecs <- makeFromJson decs
@@ -52,7 +49,7 @@ toElm name decs = do
   elmDecs <- concat <$> mapM translateDec (decs ++ jsonDecs ++ sumDecs)
   return $ M.Module [name] [] [] elmDecs --TODO imports/exports?
 
---TODO remove
+-- | General error function for unimplemented features
 unImplemented s = error $ "Translation of the The following haskell feature is not yet implemented: " ++ s
 
 {-|
@@ -61,7 +58,6 @@ Most of these functions operate in the Q monad, so that we can
 compare against Haskell expressions or types in quotes (see isIntType etc.)
 
 The return value is a list of Elm declarations
-TODO return a module?
 -}
 
 -- |Stolen from Parse.Expression so we don't have to change any internal Elm code
@@ -98,7 +94,7 @@ translateCtor (NormalC name strictTyList) =  do
 
 
 --------------------------------------------------------------------------
--- | Helper to translate clauses
+-- | Helper to get the fields of the Clause type
 unClause :: Clause -> ([Pat], Body, [Dec])
 unClause (Clause p b d) = (p, b, d)
 
@@ -109,8 +105,10 @@ single a = [a]
 {-|Translate a Haskell declaration into an Elm Declaration
   Currently implemented:
     ADTs
+    Functions
+    Value declarations
+    Type synonyms
 
-  TODO make a special error for non-supported features
 -}
 
 translateDec:: Dec -> Q [D.Declaration]
@@ -229,7 +227,23 @@ translateGuard (NormalG exp) = translateExpression exp
 translateGuard _ = unImplemented "Pattern-match guards"
 --------------------------------------------------------------------------
 {-|Translate a haskell Expression into Elm
-Currently supported: Variables, literals
+Currently supported:
+  Variables
+  Literals
+  Lambdas
+  Constructors
+  Function Application
+  Parenthises
+  tuples
+  Conditionals
+  Multi-way If statements
+  Let-expressions
+  Case expressions
+  List literals
+  Infix operations
+  
+Supported but not translated:
+  Type signatures
 -}
 translateExpression :: Exp -> Q E.Expr
 
@@ -332,7 +346,9 @@ translateLiteral = return . noQTrans where
 
 
 --------------------------------------------------------------------------
---Type helper functions
+-- |Type helper functions
+--  We use these, since String comparison is insufficients:
+-- Template Haskell returns GHC.Types.Int instead of Inst
 
 int = [t| Int |]
 string = [t| String |]
@@ -356,11 +372,12 @@ isBoolType t = do
   tbool <- bool
   return (t == tbool)
 
+-- | Helper function to traverse a tree of AppTs and check if a type is a tuple all the way down  
 isTupleType (AppT (TupleT _arity) _) = True
 isTupleType (AppT t1 t2) = isTupleType t1
 isTupleType _ = False
 
-
+-- | Helper function to linearize the AppT of tuple types
 tupleTypeToList (AppT (TupleT _arity) t) = [t]
 tupleTypeToList (AppT t1 t2) = tupleTypeToList t1 ++ [t2]
 
@@ -419,6 +436,8 @@ translateType t = do
 makeJsonCase0 (jCtor, ctorName) = Match (ConP (mkName jCtor) [] ) (NormalB $ ConE (mkName ctorName) ) [] 
 makeJsonCase1 (jCtor, varName, ctorName) = Match (ConP (mkName jCtor) [VarP (mkName varName)]) (NormalB $ AppE (ConE (mkName ctorName)) (VarE (mkName varName))) [] 
 
+-- | A list of Match values representing the "base cases" for toJson
+-- | These are checked before ADT conversion is performed
 unJsonCase :: [Match]
 unJsonCase = map makeJsonCase1 list1 ++ map makeJsonCase0 list0 ++ [intCase]
   where
@@ -431,6 +450,8 @@ unJsonCase = map makeJsonCase1 list1 ++ map makeJsonCase0 list0 ++ [intCase]
     --Can't encode lists directly
     --listCase = Match (ConP (mkName "Json.Array") [VarP (mkName "l")]) (NormalB $ AppE (ConE (mkName "FromJSON_List")) (AppE (AppE (VarE (mkName "map")) (VarE (mkName "fromJson"))) (VarE (mkName "l")) )) [] 
 
+-- | A list of Match values representing the "base cases" for fromJson
+-- | These are checked before ADT conversion is attempted    
 jsonCase :: [Match]
 jsonCase = map makeJsonCase1 list1 ++ map makeJsonCase0 list0 ++ [listCase]
   where
@@ -441,18 +462,8 @@ jsonCase = map makeJsonCase1 list1 ++ map makeJsonCase0 list0 ++ [listCase]
     list0 = [("Json.Null", "FromJSON_Null")]
     listCase = Match (ConP (mkName "Json.Array") [VarP (mkName "l")]) (NormalB $ AppE (ConE (mkName "FromJSON_List")) (AppE (AppE (VarE (mkName "map")) (VarE (mkName "fromJson"))) (VarE (mkName "l")) )) []     
     
-{-
-[|case json of
-Array lst -> FromJson_List $ map fromJson lst
-Number n -> FromJson_Int  n --TODO int vs float?
-Null -> FromJSON_Null
-String s -> FromJson_String s
-Boolean b -> FromJson_Bool b
 
-|]
--}
-
--- | Filter function to test of a dec is a data
+-- | Filter function to test if a dec is a data
 isData :: Dec -> Bool
 isData DataD{} = True
 isData _ = False
@@ -469,6 +480,7 @@ toJson = VarE (mkName "toJson")
 json :: Exp
 json = VarE (mkName "json")
 
+-- | Pattern for an argument named 'json'
 jsonPat :: Pat
 jsonPat = VarP (mkName "json") 
 
@@ -488,22 +500,26 @@ jsonCtor = VarE (mkName "getCtor")
 getNthVar :: String -> Exp
 getNthVar nstr = AppE (AppE nthVar json ) (LitE $ StringL nstr)
 
+-- | Expression to access the "type" field of a JSON object
 getType :: Exp
 getType = AppE jsonType json  
 
+-- | Expression to access the constructor field of a JSON object
 getCtor :: Exp
 getCtor = AppE jsonCtor json 
 
+-- | Expression representing function composition
 fnComp :: Exp
 fnComp = VarE $ mkName "."
 
--- |The String argument of the JSON "type" property denoting a given ADT
-typeString :: Name -> Q String
-typeString name = return $ "FromJSON_" ++ nameToString name
+-- | The string prefix for the massive JSON sum type
+sumTypePrefix :: String
+sumTypePrefix = "BoxedJson"
 
--- | name of the function to convert FromJSON to arg type
-unTypeName :: Name -> Q Name
-unTypeName name = return $ mkName $ "unFromJSON_" ++ nameToString name
+-- |The String argument of the massive JSON sum type property denoting a given ADT
+typeString :: Name -> Q String
+typeString name = return $ sumTypePrefix ++ nameToString name
+
 
 -- |The Pattern to unbox a value into its type from the massive sum type
 -- | the second argument is the name to bind the value to
@@ -511,10 +527,14 @@ unJsonPat :: Name -> Name -> Q Pat
 unJsonPat typeName nameToBind = do
   typeCtor <- mkName <$> typeString typeName
   return $ ConP typeCtor [VarP nameToBind]
-  
+
+-- | The name of the constructor which wraps
+-- the type with the given name into the giant sum type
 sumTypeCtor :: Name -> Q Name
 sumTypeCtor name = mkName <$> typeString name
 
+-- | Recursively generates an expression for the function which takes an argument of type BoxedJson
+-- and converts it, while also extracting it from the BoxedJson type
 unJsonType :: Type -> Q Exp
 unJsonType (ConT name) = do
   argName <- newName "x"
@@ -557,7 +577,8 @@ unJsonType t
           let unCtor = LamE [lambdaPat] (AppE (VarE (mkName "round")) (VarE argName) )
           return $ InfixE (Just unCtor) fnComp (Just fromJson)
         
-  
+-- | Generate a declaration, and a name bound in that declaration,
+-- Which unpacks a value of the given type from the nth field of a JSON object
 getSubJson :: (Type, Int) -> Q (Name, Dec)
 -- We need special cases for lists and tuples, to unpack them
 --TODO recursive case
@@ -569,7 +590,8 @@ getSubJson (t, n) = do
   return (subName, ValD subLeftHand subRightHand [])
   
 
-  
+-- | Given a type constructor, generate the match which matches the "ctor" field of a JSON object
+-- | to apply the corresponding constructor to the proper arguments, recursively extracted from the JSON
 fromMatchForCtor :: Con -> Q Match        
 fromMatchForCtor (NormalC name types) = do
   let matchPat = LitP $ StringL $ nameToString name
@@ -582,7 +604,8 @@ fromMatchForCtor (NormalC name types) = do
     ctorExp = ConE name
     applyArgs t accum = foldl (\ accum h -> AppE accum (VarE h)) accum t 
   
-  
+-- | Given a type delcaration, generate the match which matches the "type" field of a JSON object
+-- and then defers to a case statement on constructors for that type
 fromMatchForType :: Dec -> Q Match
 fromMatchForType dec@(DataD _ name _ ctors []) = do
   let matchPat = LitP $ StringL $ nameToString name
@@ -594,7 +617,9 @@ fromMatchForType dec@(DataD _ name _ ctors []) = do
   let ret = AppE (ConE typeCtor) (VarE jsonName)
   let body = NormalB $ LetE [typeBodyDec] ret
   return $ Match matchPat body []
-  
+
+-- |Given a list of declarations, generate the fromJSON function for all
+-- types defined in the declaration list
 makeFromJson :: [Dec] -> Q [Dec]
 makeFromJson allDecs = do
   let decs = filter isData allDecs
@@ -606,7 +631,8 @@ makeFromJson allDecs = do
 
   
 -----------------------------------------------------------------------
---ToJSON deriving
+-- |Given a list of declarations, generate the toJSON function for all
+-- types defined in the declaration list
 makeToJson :: [Dec] -> Q [Dec]
 makeToJson allDecs = do
   let decs = filter isData allDecs
@@ -615,11 +641,14 @@ makeToJson allDecs = do
   let body = NormalB $ CaseE json (unJsonCase ++ typeMatches)
   return [ FunD (mkName "toJson") [Clause [jsonPat] body []] ]
 
+-- | Helper function to generate a the names X1 .. Xn with some prefix X  
 nNames :: Int -> String -> Q [Name]
 nNames n base = do
   let varStrings = map (\n -> base ++ show n) [1..n]
   mapM newName varStrings
-  
+
+--Generate the Match which matches against the given constructor
+--then packs its argument into a JSON with the proper type, ctor and argument data
 toMatchForCtor :: Name -> Con -> Q Match        
 toMatchForCtor typeName (NormalC name types) = do
   let n = length types
@@ -634,7 +663,8 @@ toMatchForCtor typeName (NormalC name types) = do
   let body = NormalB $ LetE (jsonDecs ++ [dictDec]) ret
   return $ Match matchPat body []
 
-
+-- | Generate the declaration of a dictionary mapping field names to values
+-- to be used with the JSON Object constructor
 makeDict :: Name -> Name -> Name -> [Name] -> Q Dec    
 makeDict typeName ctorName dictName jsonNames = do
   let leftSide = VarP dictName
@@ -649,7 +679,8 @@ makeDict typeName ctorName dictName jsonNames = do
   let rightSide = NormalB $ AppE (VarE $ mkName "Dict.fromList") tupleList
   return $ ValD leftSide rightSide []
   
-  
+ -- |Generate the Match which matches against the BoxedJson constructor
+ -- to properly encode a given type
 toMatchForType :: Dec -> Q Match
 toMatchForType dec@(DataD _ name _ ctors []) = do
   varName <- newName "adt"
@@ -658,6 +689,8 @@ toMatchForType dec@(DataD _ name _ ctors []) = do
   let body = NormalB $ CaseE (VarE varName) ctorMatches
   return $ Match matchPat body []  
 
+-- | Generate the declaration of a value converted to Json
+-- given the name of an ADT value to convert
 makeSubJson :: (Type, Name, Name) -> Q Dec
 -- We need special cases for lists and tuples, to unpack them
 --TODO recursive case
@@ -667,7 +700,9 @@ makeSubJson (t, adtName, jsonName) = do
   let subRightHand = NormalB $ AppE funToApply (VarE adtName)
   return $ ValD subLeftHand subRightHand []
 
-  
+-- | For a type, generate the expression for the function which takes a value of that type
+--  and converts it to JSON
+-- used to recursively convert the data of ADTs
 pureJsonType :: Type -> Q Exp
 --Base case: if an ADT, just call toJson with the appropriate constructor
 pureJsonType (ConT name) = do
@@ -704,6 +739,9 @@ pureJsonType t
       return $ LamE [argPat] listExp      
   --Don't need special int case, that happens when actually boxing the Json
 -----------------------------------------------------------------------
+
+-- | Generate a giant sum type representing all of the types within this module
+-- this allows us to use toJson and fromJson without having typeClasses
 giantSumType :: [Dec] -> Q [Dec]
 giantSumType allDecs = do
   let decs = filter isData allDecs
