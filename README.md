@@ -1,59 +1,49 @@
 Learn about the Elm programming language at [elm-lang.org](http://elm-lang.org/).
 
-
+    
 ## Install
+Haskelm is a modification on Elm. Therefore, it is reccomended that you install it in a Cabal sanbox.
+To install the modified library, compiler, and haskelm binary, run
 
-**Arch Linux** &mdash; follow [these directions](https://github.com/evancz/Elm/wiki/Installing-Elm#arch-linux) and then
-jump to the [My First Project](#my-first-project) section.
-<br/>
-**OS X 10.9** &mdash; follow
-[these directions](http://justtesting.org/post/64947952690/the-glasgow-haskell-compiler-ghc-on-os-x-10-9)
-before continuing with the platform agnostic directions below.
+    cabal install
 
-**Platform Agnostic** &mdash;
-download the [Haskell Platform 2012.2.0.0 or later](http://hackage.haskell.org/platform/).
-Once the Haskell Platform is installed:
-
-    cabal update
-    cabal install elm
-    cabal install elm-server
+in the directory where you have checkoud the source
+You can install only the haskelm executable with 
+    cabal install haskelm
 
 ## Use
 
-To use `elm` and `elm-server` you may need to add a new directory to your PATH.
+To use `haskelm` as a binary, simply run
 
-Cabal should tell you where your executables are located upon
-successful installation. It'll be something like `/home/evan/.cabal/bin`
-which you should append to your PATH variable.
-See this tutorial if you are new to changing your PATH in
-[Unix/Linux](http://www.cyberciti.biz/faq/unix-linux-adding-path/).
+    haskelm [infile]
+Note that infile must contain Haskell declarations, but not imports,
+module declarations, etc. (This should change in the near future)
 
-## My First Project
+The haskelm binary will print to stdout an Elm translation of the given haskell file.
 
-Now we will create a simple Elm project.
-The following commands will set-up a very basic project and start the Elm server.
+## Library
+You can also use Haskelm within a Haskell program, via Template Haskell.
 
-    mkdir helloElm
-    cd helloElm
-    printf "import Mouse\n\nmain = lift asText Mouse.position" > Main.elm
-    elm-server
+Currently, you feed TemplateHaskell a list of haskell declarations.
+It will then translate them into an Elm string, which is declared as a variable.
+Then both the Haskell declarations and the Elm string will be spliced in.
 
-The first two commands create a new directory and navigate into it. The `printf`
-commands place a simple program into `Main.elm`. Do this manually if you do not
-have `printf`. The final command starts the Elm server at [localhost:8000](http://localhost:8000/),
-allowing you to navigate to `Main.elm` and see your first program in action.
+To splice in a quoted list of declarations, use
 
-#### Final Notes
+    $(decHaskAndElm "variableNameForElmString" [d| ... |])
 
-The `elm` package provides
-[some utility functions](http://hackage.haskell.org/package/Elm) for
-working with Elm in Haskell. This can be useful for creating tooling
-for Elm, and has been useful for projects like
-[the website](http://elm-lang.org/) and
-[`elm-get`](https://github.com/evancz/elm-get). Email the list if you
-want to rely on these functions!
+where your Haskell declarations go instide the `[d| ... |]` brackets.
 
-If you are stuck, email
-[the list](https://groups.google.com/forum/?fromgroups#!forum/elm-discuss)
-or ask a question in the
-[#Elm IRC channel](http://webchat.freenode.net/?channels=elm). 
+Similarly, you can splice and translate declarations from a String or a file
+using 
+
+    $(decsFromString "elmFromString" "data X = Y | Z" )
+or
+    $(decsFromFile "elmFromFile" "input_file.hs" )
+
+See tests/Tests/TH.hs for an example.
+
+## Disclaimer
+
+This is VERY much a work in progress, and is not production ready.
+Please feel free to open issues for any bugs or feature suggestions.
