@@ -1,11 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -fno-warn-missing-fields #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE TemplateHaskell, QuasiQuotes, MultiWayIf #-}
-
 -- | This module contains Shakespearean (see "Text.Shakespeare") templates for Elm.
 -- It introduces type-safe compile-time variable and URL interpolation. A typeclass
 -- @'ToElm'@ is provided for interpolated variables.
@@ -77,59 +69,18 @@ import System.Directory
 
 -- | Translate a Haskell string into DecsQ
 stringToDecs :: String -> Q [Dec]
-stringToDecs s = case (parseDecs s) of
+stringToDecs s = case parseDecs s of
     Left e -> error $ "Failed to parse module\n" ++ e
     Right decs -> return decs
 
--- | Render Elm to lazy Text.
-renderElm :: Elm -> TL.Text
-renderElm (Elm b) = toLazyText b
 
--- | Newtype wrapper of 'Builder'.
-newtype Elm = Elm { unElm :: Builder }
-    deriving Monoid
-
--- | A typeclass for types that can be interpolated in Elm templates.
-class ToElm a where
-    toElm :: a -> Builder
-instance ToElm [Char] where toElm = fromLazyText . TL.pack
-instance ToElm TS.Text where toElm = fromText
-instance ToElm TL.Text where toElm = fromLazyText
-
-elmSettings :: Q ShakespeareSettings
-elmSettings = do
-  toJExp <- [|toElm|]
-  wrapExp <- [|Elm|]
-  unWrapExp <- [|unElm|]
-  return $ defaultShakespeareSettings { toBuilder = toJExp
-  , wrap = wrapExp
-  , unwrap = unWrapExp
-  }
-
-parseModule :: String -> [Declaration]
-parseModule s =
-  let eMod = Parse.program (Map.fromList []) s
-  in case eMod of
-    Left doc -> error $ "Elm quasi parse failed\n" ++ (show doc)
-    Right (Module _ _ _ decs) -> decs
-
-{-
-getElmAST :: String -> Q Exp
-getElmAST s =  dataToExpQ (const Nothing)  (parseModule s)
-
--- QuasiQuoter for embedding Elm code inside of Haskell code.
--- Returns a list of declarations in the Q monad
-elm :: QuasiQuoter
-elm = QuasiQuoter { quoteExp = getElmAST
-    }
--}
 
 decsFromString :: String -> String -> DecsQ
 decsFromString varName decString = decHaskAndElm varName (stringToDecs decString)
 
 decsFromFile :: String -> String -> DecsQ
 decsFromFile varName filePath = do
-  cd <- runIO $  getCurrentDirectory
+  cd <- runIO getCurrentDirectory
   runIO $ putStrLn $ "CurrentDirectory " ++ cd
   decString <- runIO $ readFile filePath
   decHaskAndElm varName (stringToDecs decString)
@@ -147,35 +98,15 @@ decHaskAndElm varName dq = do
     --runIO $ putStrLn $ "Got pretty " ++ ( concat $ map (show . Pretty.pretty) $  HToE.toElm decs)
     Module [name] export imports elmDecs <- HToE.toElm "Main" decs
     let preamble = "module " ++ name ++ " where\nimport open Json\nimport Json\nimport Dict\n" ++ baseCode --TODO imports, exports
-    let elmString = preamble ++ ( (intercalate "\n") $ map (show . Pretty.pretty) $ elmDecs )
+    let elmString = preamble ++ intercalate "\n" (map (show . Pretty.pretty) elmDecs)
     let elmExp = liftString elmString
     let pat = varP (mkName varName)
     let body = normalB elmExp
-    runIO $ putStrLn $ concat $ map pprint (decs )
+    --runIO $ putStrLn $ concatMap pprint decs
     elmDec <- valD pat body []
-    runIO $ putStrLn "****************************************\nStarting Elm Compilation"
+    --runIO $ putStrLn "****************************************\nStarting Elm Compilation"
     js <- runIO $ buildAll  [("Main.elm", elmString)] "Main.elm"
-    runIO $ putStrLn "****************************************\nEnding Elm Compilation"
-    runIO $ putStrLn $ "Generated js:\n" ++ js
+    --runIO $ putStrLn "****************************************\nEnding Elm Compilation"
+    --runIO $ putStrLn $ "Generated js:\n" ++ js
     return $ decs ++ [elmDec]
-
--- |A Template Haskell function for embedding Elm code from external
--- .elm files.
---
--- Usage:
--- @$(elmFile \"elm_source/index.elm\")@
-{-
-elmFile :: FilePath -> Q Exp
-elmFile fp = do
-    s <- runIO $ readFile fp
-    getElmAST s
--}
-
---TODO do reloading
-{-
-elmFileReload :: FilePath -> Q Exp
-elmFileReload fp = do
-    rs <- elmSettings
-    shakespeareFileReload rs fp
--}
 
