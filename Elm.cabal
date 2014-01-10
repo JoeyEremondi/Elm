@@ -94,6 +94,8 @@ Library
                        Build.Utils,
                        Paths_Elm,
                        Language.Elm.TH.HToE
+                       Language.Elm.TH.Json
+                       Language.Elm.TH.Util
   extensions: TemplateHaskell MultiWayIf
 
   Build-depends:       aeson,

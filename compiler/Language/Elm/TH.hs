@@ -46,13 +46,14 @@ import qualified Data.Text as TS
 import qualified Data.Text.Lazy as TL
 import Text.Shakespeare
 
-import SourceSyntax.Declaration
-import SourceSyntax.Module
+import SourceSyntax.Declaration as D
+import SourceSyntax.Module as M
 import qualified Parse.Parse as Parse
 
 import Language.Haskell.TH.Lib
 
 import qualified Language.Elm.TH.HToE as HToE
+import qualified Language.Elm.TH.Json as Json
 
 import qualified Data.Map as Map
 import Data.List (intercalate)
@@ -66,6 +67,26 @@ import Language.Elm.BuildString (buildAll)
 import Build.Flags (flags)
 
 import System.Directory
+
+import Control.Applicative ((<$>))
+
+-- | General error function for unimplemented features
+unImplemented s = error $ "Translation of the The following haskell feature is not yet implemented: " ++ s
+
+
+-- | 'toElm' takes a 'String' module name and a list of Template Haskell declarations
+-- and generates a translated Elm AST module
+toElm :: String -> [Dec] -> Q (M.Module D.Declaration)
+toElm name decs = do
+  fromJsonDecs <- Json.makeFromJson decs
+  toJsonDecs <- Json.makeToJson decs
+  let jsonDecs = fromJsonDecs ++ toJsonDecs
+  sumDecs <- Json.giantSumType decs
+  elmDecs <- concat <$> mapM HToE.translateDec (decs ++ jsonDecs ++ sumDecs)
+  return $ M.Module [name] [] [] elmDecs --TODO imports/exports?
+
+
+
 
 -- | Translate a Haskell string into DecsQ
 stringToDecs :: String -> Q [Dec]
@@ -96,7 +117,7 @@ decHaskAndElm :: String -> DecsQ -> DecsQ
 decHaskAndElm varName dq = do
     decs <- dq
     --runIO $ putStrLn $ "Got pretty " ++ ( concat $ map (show . Pretty.pretty) $  HToE.toElm decs)
-    Module [name] export imports elmDecs <- HToE.toElm "Main" decs
+    Module [name] export imports elmDecs <- toElm "Main" decs
     let preamble = "module " ++ name ++ " where\nimport open Json\nimport Json\nimport Dict\n" ++ baseCode --TODO imports, exports
     let elmString = preamble ++ intercalate "\n" (map (show . Pretty.pretty) elmDecs)
     let elmExp = liftString elmString
