@@ -87,22 +87,29 @@ toElm name decs = do
   elmDecs <- concat <$> mapM HToE.translateDec (decs ++ jsonDecs ++ sumDecs)
   return $ M.Module [name] [] [] elmDecs --TODO imports/exports?
 
+-- | Given a module name and a list of template-haskell declarations
+-- | translate the declarations into Elm and return the string of the translated module
 toElmString :: String -> [Dec] -> Q String
 toElmString name decs = moduleToString <$> toElm name decs
   
 
 
--- | Translate a Haskell string into DecsQ
+-- | Translate a Haskell string into a list of Template-Haskell declarations
 stringToDecs :: String -> Q [Dec]
 stringToDecs s = case parseDecs s of
     Left e -> error $ "Failed to parse module\n" ++ e
     Right decs -> return decs
 
 
-
+-- | Given a string representing Haskell declarations, splice them and
+-- into the haskell code, while also translating them into an Elm module
+-- stored with the given varName
 decsFromString :: String -> String -> DecsQ
 decsFromString varName decString = decHaskAndElm varName (stringToDecs decString)
 
+-- | Given a file containing Haskell declarations, splice them and
+-- into the haskell code, while also translating them into an Elm module
+-- stored with the given varName
 decsFromFile :: String -> String -> DecsQ
 decsFromFile varName filePath = do
   cd <- runIO getCurrentDirectory
@@ -120,7 +127,9 @@ moduleToString (Module [name] export imports elmDecs ) =
   let preamble = "module " ++ name ++ " where\nimport open Json\nimport Json\nimport Dict\n" ++ baseCode --TODO imports, exports
   in preamble ++ intercalate "\n" (map (show . Pretty.pretty) elmDecs)               
                
---Declares the given Haskell declarations, equivalent Elm stuff
+-- | Given haskell declarations wrapped in '[d| ... |]', splice them and
+-- into the haskell code, while also translating them into an Elm module
+-- stored with the given varName
 decHaskAndElm :: String -> DecsQ -> DecsQ
 decHaskAndElm varName dq = do
     decs <- dq
