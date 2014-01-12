@@ -54,11 +54,11 @@ unJsonCase :: [Match]
 unJsonCase = map makeJsonCase1 list1 ++ map makeJsonCase0 list0 ++ [intCase]
   where
     list1 = [--("Array", "lst", "FromJSON_List"), --TODO can do types?
-             ( "FromJSON_Float", "n",  "Json.Number"),
-             ("FromJSON_String", "s", "Json.String"),
-             ("FromJSON_Bool", "b", "Json.Boolean")]
-    list0 = [("FromJSON_Null", "Json.Null")]
-    intCase = Match (ConP (mkName "FromJSON_Int") [VarP (mkName "i")]) (NormalB $ AppE (ConE (mkName "Json.Number")) (AppE (VarE $ mkName "toFloat")(VarE (mkName "i")) ) ) []
+             ( sumTypePrefix ++"_Float", "n",  "Json.Number"),
+             (sumTypePrefix ++"_String", "s", "Json.String"),
+             (sumTypePrefix ++"_Bool", "b", "Json.Boolean")]
+    list0 = [(sumTypePrefix ++ "_Null", "Json.Null")]
+    intCase = Match (ConP (mkName $ sumTypePrefix ++"_Int") [VarP (mkName "i")]) (NormalB $ AppE (ConE (mkName "Json.Number")) (AppE (VarE $ mkName "toFloat")(VarE (mkName "i")) ) ) []
     --Can't encode lists directly
     --listCase = Match (ConP (mkName "Json.Array") [VarP (mkName "l")]) (NormalB $ AppE (ConE (mkName "FromJSON_List")) (AppE (AppE (VarE (mkName "map")) (VarE (mkName "fromJson"))) (VarE (mkName "l")) )) [] 
 
@@ -68,11 +68,11 @@ jsonCase :: [Match]
 jsonCase = map makeJsonCase1 list1 ++ map makeJsonCase0 list0 ++ [listCase]
   where
     list1 = [--("Array", "lst", "FromJSON_List"), --TODO can do types?
-             ("Json.Number", "n", "FromJSON_Float"),
-             ("Json.String", "s", "FromJSON_String"),
-             ("Json.Boolean", "b", "FromJSON_Bool")]
-    list0 = [("Json.Null", "FromJSON_Null")]
-    listCase = Match (ConP (mkName "Json.Array") [VarP (mkName "l")]) (NormalB $ AppE (ConE (mkName "FromJSON_List")) (AppE (AppE (VarE (mkName "map")) (VarE (mkName "fromJson"))) (VarE (mkName "l")) )) []     
+             ("Json.Number", "n", sumTypePrefix ++"_Float"),
+             ("Json.String", "s", sumTypePrefix ++"_String"),
+             ("Json.Boolean", "b", sumTypePrefix ++"_Bool")]
+    list0 = [("Json.Null", sumTypePrefix ++"_Null")]
+    listCase = Match (ConP (mkName "Json.Array") [VarP (mkName "l")]) (NormalB $ AppE (ConE (mkName $ sumTypePrefix ++"_List")) (AppE (AppE (VarE (mkName "map")) (VarE (mkName "fromJson"))) (VarE (mkName "l")) )) []     
     
 
 -- | Filter function to test if a dec is a data
@@ -130,7 +130,7 @@ sumTypePrefix = "BoxedJson"
 
 -- |The String argument of the massive JSON sum type property denoting a given ADT
 typeString :: Name -> Q String
-typeString name = return $ sumTypePrefix ++ nameToString name
+typeString name = return $ sumTypePrefix ++ "_" ++  nameToString name
 
 
 -- |The Pattern to unbox a value into its type from the massive sum type
@@ -291,7 +291,7 @@ makeDict typeName ctorName dictName jsonNames = do
   let rightSide = NormalB $ AppE (VarE $ mkName "Dict.fromList") tupleList
   return $ ValD leftSide rightSide []
   
- -- | Generate the Match which matches against the BoxedJson constructor
+ -- |Generate the Match which matches against the BoxedJson constructor
  -- to properly encode a given type
 toMatchForType :: Dec -> Q Match
 toMatchForType dec@(DataD _ name _ ctors []) = do
@@ -361,10 +361,10 @@ giantSumType allDecs = do
   
   ctorStrings <- mapM typeString typeNames
   let ctorNames = zip typeNames (map mkName ctorStrings)
-  let nullCtor = NormalC (mkName "FromJSON_Null") []
-  let listCtor = NormalC (mkName "FromJSON_List") [(NotStrict, AppT ListT (ConT $ mkName "FromJSON")) ]
+  let nullCtor = NormalC (mkName $ sumTypePrefix ++ "_Null") []
+  let listCtor = NormalC (mkName $ sumTypePrefix ++  "_List") [(NotStrict, AppT ListT (ConT $ mkName sumTypePrefix)) ]
   let ctors = map (\ (typeName, ctorName) -> NormalC ctorName [(NotStrict, ConT typeName)] ) ctorNames
-  return [ DataD [] (mkName "FromJSON") [] (ctors ++ [nullCtor, listCtor]) [] ]
+  return [ DataD [] (mkName sumTypePrefix) [] (ctors ++ [nullCtor, listCtor]) [] ]
     where 
       getTypeName :: Dec -> Name
       getTypeName (DataD _ name _ _ _ ) = name
