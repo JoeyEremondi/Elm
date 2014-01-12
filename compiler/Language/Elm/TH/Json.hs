@@ -291,7 +291,7 @@ makeDict typeName ctorName dictName jsonNames = do
   let rightSide = NormalB $ AppE (VarE $ mkName "Dict.fromList") tupleList
   return $ ValD leftSide rightSide []
   
- -- |Generate the Match which matches against the BoxedJson constructor
+ -- | Generate the Match which matches against the BoxedJson constructor
  -- to properly encode a given type
 toMatchForType :: Dec -> Q Match
 toMatchForType dec@(DataD _ name _ ctors []) = do
