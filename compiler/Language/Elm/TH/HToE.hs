@@ -172,7 +172,7 @@ translateDec (TySynInstD name types theTy) = emitWarning "Type synonym instances
 
 translateDef :: Dec -> Q E.Def
 
---TODO non-empty where?
+--TODO functions
 translateDef (ValD pat body whereDecs) = do
     ePat <- translatePattern pat
     eWhere <- mapM translateDef whereDecs
@@ -209,11 +209,23 @@ translatePattern (SigP pat _) = translatePattern pat
 
 translatePattern (ListP patList) = P.list <$> mapM translatePattern patList
 
+--TODO actually do as-patterns
+translatePattern (AsP _ _) = unImplemented "As patterns"
+
+--TODO implement records
+translatePattern (RecP _ _) = unImplemented "Record patterns"
+
+translatePattern (InfixP _ _ _) = unImplemented "Infix patterns"
+
+translatePattern (TildeP _) = unImplemented "Tilde patterns/laziness notation"
+translatePattern (BangP _) = unImplemented "Baing patterns/strictness notation"
+
+translatePattern (ViewP _ _) = unImplemented "View patterns"
+
 translatePattern _ = unImplemented "Misc patterns"
 
 --------------------------------------------------------------------------
 -- |Translate a function body into Elm
--- Note that guarded bodies are currently unsupported
 translateBody  :: Body -> Q E.Expr
 translateBody (NormalB e) = translateExpression e
 --Just convert to a multi-way If statement
@@ -331,6 +343,17 @@ translateExpression (InfixE _ _ _) = unImplemented "Operator sections i.e. (+3)"
     
 --Just ignore signature
 translateExpression (SigE exp _) = translateExpression exp
+
+--TODO implement ranges
+translateExpression e@(ArithSeqE _) = unImplemented $ "Ranges: " ++ show e
+
+translateExpression e@(DoE _) = unImplemented $ "Sugared do notation: " ++ show e
+
+translateExpression e@(CompE _) = unImplemented $ "List comprehensions: " ++ show e
+
+translateExpression e@(RecConE _ _ ) = unImplemented $ "Record construction: " ++ show e
+
+translateExpression e@(RecUpdE _ _ ) = unImplemented $ "Record update: " ++ show e
 
 translateExpression e = unImplemented $ "Misc expression " ++ show e
 
