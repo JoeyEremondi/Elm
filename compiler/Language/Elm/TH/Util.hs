@@ -70,6 +70,8 @@ nameToString name =
                       then nameBase name
                       else showName name
 
+--TODO do namespace conversion
+nameToElmString = nameToString
 --------------------------------------------------------------------------
 -- |Type helper functions
 --  We use these, since String comparison is insufficients:

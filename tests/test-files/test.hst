@@ -1,5 +1,7 @@
-data A = B Int | C String
+--Basic data declaration
+data A = B Int | C String String | D
 
+--Where in function declaration
 add13 z = 
   let 
     ww = 10
@@ -7,14 +9,22 @@ add13 z =
   in w + x + y + z
   where x = 1
         y = 2
-
+        
+--Where in value declaration
 someValue = x
   where x = 3
 
+--Guarded function bodies
 theMin x y 
   | x < y     = x
   | x == y    = x
   | otherwise = y
+
   
+--Multiple-clause function defs  
 allZero 0 0 0 = True
 allZero _ _ _ = False
+
+--As-patterns
+wrapMaybe Nothing = Nothing
+maybeZero l@(Just x) = Just l 

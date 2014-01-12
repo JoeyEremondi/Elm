@@ -56,7 +56,7 @@ translateCtor :: Con -> Q (String,[T.Type])
 translateCtor (NormalC name strictTyList) =  do
   let sndList = map snd strictTyList
   tyList <- mapM translateType sndList
-  return (nameToString name, tyList)
+  return (nameToElmString name, tyList)
 --TODO handle record decs
 
 -- | Take a list of declarations and a body
@@ -90,11 +90,13 @@ translateDec:: Dec -> Q [D.Declaration]
 --TODO translate where decs into elm let-decs
 --TODO what about when more than one clause?
 translateDec (FunD name [Clause patList body whereDecs])  = do
-    let eName = nameToString name
+    let eName = nameToElmString name
+    (ePats, asDecList) <- unzip <$> mapM translatePattern patList
+    let asDecs = concat asDecList
     eWhere <- mapM translateDef whereDecs
+    let eDecs = asDecs ++ eWhere
     fnBody <- translateBody body
-    let eBody = maybeLet eWhere fnBody
-    ePats <- mapM translatePattern patList
+    let eBody = maybeLet eDecs fnBody
     return $ single $ D.Definition $ E.Definition (P.PVar eName) (makeFunction ePats (Lo.none eBody)) Nothing --TODO what is maybe arg?
     
 --multi-clause case i.e. pattern matching
@@ -118,10 +120,11 @@ translateDec (FunD name clauseList) = do
   
 
 translateDec (ValD pat body whereDecs)  = do
+    (ePat, asDecs) <- translatePattern pat
     valBody <- translateBody body
-    eWhere <- mapM translateDef whereDecs
+    eWhere <- (asDecs ++) <$> mapM translateDef whereDecs
     let eBody = maybeLet eWhere valBody
-    ePat <- translatePattern pat
+    
     return $ single $ D.Definition $ E.Definition ePat (Lo.none eBody) Nothing --TODO what is maybe arg?
 
 
@@ -130,8 +133,8 @@ translateDec dec@(DataD [] name tyBindings ctors names) = do
     eCtors <- mapM translateCtor ctors
     return [ D.Datatype eName eTyVars eCtors []] --TODO derivations?
     where
-        eName = nameToString name
-        eTyVars = map (nameToString . tyVarToName) tyBindings
+        eName = nameToElmString name
+        eTyVars = map (nameToElmString . tyVarToName) tyBindings
 
 
 --TODO data case for non-empty context?
@@ -141,8 +144,8 @@ translateDec (DataD cxt name tyBindings ctors names) =
 translateDec (NewtypeD cxt name tyBindings  ctor nameList) = unImplemented "Newtypes"
 
 translateDec (TySynD name tyBindings ty) = do
-    let eName = nameToString name
-    let eTyVars = map (nameToString . tyVarToName) tyBindings
+    let eName = nameToElmString name
+    let eTyVars = map (nameToElmString . tyVarToName) tyBindings
     eTy <- translateType ty
     return $ single $ D.TypeAlias eName eTyVars eTy []
 
@@ -174,55 +177,129 @@ translateDef :: Dec -> Q E.Def
 
 --TODO functions
 translateDef (ValD pat body whereDecs) = do
-    ePat <- translatePattern pat
-    eWhere <- mapM translateDef whereDecs
+    (ePat, asDecs) <- translatePattern pat
+    eWhere <- (asDecs ++ ) <$> mapM translateDef whereDecs
     decBody <- translateBody body
     let eBody = maybeLet eWhere decBody
     return $ E.Definition ePat (Lo.none eBody) Nothing
 
 translateDef d = unImplemented "Non-simple function/value definitions"
 
+-- | Helper to put an object in a tuple with an empty list as snd
+unFst x = (x, [])
+
 --------------------------------------------------------------------------
 -- |Translate a pattern match from Haskell to Elm
 
-translatePattern :: Pat -> Q P.Pattern
+translatePattern :: Pat -> Q (P.Pattern, [E.Def])
+--Special case for As, to carry over the name
+translatePattern (AsP name pat) = do
+  runIO $ putStrLn "In as-case of translate pattern"
+  (retPat, subDecs) <- translatePattern $ pat
+  patExp <- patToExp pat
+  dec <- translateDef $ ValD (VarP name) (NormalB patExp) []
+  return (retPat, [dec] ++ subDecs)
+{-
+translatePattern p = do
+  runIO $ putStrLn $ show p
+  ret <-translatePattern' p
+  return (ret, [])
+  -}
 
-translatePattern (LitP lit) = P.PLiteral <$> translateLiteral lit
+translatePattern (LitP lit) = (unFst . P.PLiteral) <$> translateLiteral lit
 
-translatePattern (VarP name) = return $ P.PVar $ nameToString name
+translatePattern (VarP name) = return $ unFst $ P.PVar $ nameToElmString name
 
-translatePattern (TupP patList) = P.tuple <$> mapM translatePattern patList
+--Special case: if only one pattern in tuple, don't treat as tuple
+--TODO why do we need this?
+translatePattern (TupP [pat]) = translatePattern pat
 
+translatePattern (TupP patList) = do
+  (patList, allAsDecs) <- unzip <$> mapM translatePattern patList
+  return (P.tuple patList, concat allAsDecs)
 
-translatePattern (ConP name patList) = (P.PData $ nameToString name) <$> mapM translatePattern patList
+--Treat unboxed tuples like tuples
+translatePattern (UnboxedTupP patList) = translatePattern $ TupP patList  
+
+translatePattern (ConP name patList) = do
+  (patList, allAsDecs) <- unzip <$> mapM translatePattern patList
+  return (P.PData (nameToElmString name) patList, concat allAsDecs) 
 
 --Just pass through parentheses
 translatePattern (ParensP p) = translatePattern p
-
+ 
 --TODO Infix, tilde, bang, as, record,  view
 
 
-translatePattern WildP = return P.PAnything
+translatePattern WildP = return $ unFst P.PAnything
 
---Ignore the type signature if there's one in the pattern
+--Ignore the type signature if theres one in the pattern
 translatePattern (SigP pat _) = translatePattern pat
 
-translatePattern (ListP patList) = P.list <$> mapM translatePattern patList
+translatePattern (ListP patList) = do
+  (patList, allAsDecs) <- unzip <$> mapM translatePattern patList
+  return (P.list patList, concat allAsDecs)
 
---TODO actually do as-patterns
-translatePattern (AsP _ _) = unImplemented "As patterns"
+--Convert infix patterns to Data patterns, then let Elm decide
+-- how it translates them (i.e. cons is a special case)                                                     
+translatePattern (InfixP p1 name p2) = translatePattern $ ConP name [p1,p2]
+--treat unboxed infix like infix
+translatePattern (UInfixP p1 name p2) = translatePattern $ InfixP p1 name p2
 
 --TODO implement records
 translatePattern (RecP _ _) = unImplemented "Record patterns"
 
-translatePattern (InfixP _ _ _) = unImplemented "Infix patterns"
+
 
 translatePattern (TildeP _) = unImplemented "Tilde patterns/laziness notation"
 translatePattern (BangP _) = unImplemented "Baing patterns/strictness notation"
 
 translatePattern (ViewP _ _) = unImplemented "View patterns"
 
-translatePattern _ = unImplemented "Misc patterns"
+--translatePattern p = unImplemented $ "Misc patterns " ++ show p
+
+-------------------------------------------------------------------------
+-- | Convert a pattern into an expression
+-- Useful for as patterns, so we can do pattern checking as well as multiple naming
+patToExp :: Pat -> Q Exp
+patToExp p = patToExp' <$> removeWildcards p
+  where
+    patToExp' (LitP l) = LitE l
+    patToExp' (VarP n) = VarE n
+    patToExp' (TupP l) = TupE $ map patToExp' l
+    patToExp' (UnboxedTupP l) = UnboxedTupE $ map patToExp' l
+    patToExp' (ConP n pl) = foldl  AppE (VarE n) (map patToExp' pl) --Apply constructor to each subexp
+    patToExp' (InfixP p1 n p2) = InfixE (Just $ patToExp' p1) (VarE n) (Just $ patToExp' p2)
+    patToExp' (UInfixP p1 n p2) = UInfixE (patToExp' p1) (VarE n) (patToExp' p2)
+    patToExp' (ParensP p) = ParensE $ patToExp' p
+    patToExp' (AsP n p) = patToExp' p --TODO ignore name? Should get covered by other translation
+    patToExp' WildP = error "Can't use wildcard in expression"
+    patToExp' (ListP pList) = ListE $ map patToExp' pList
+    patToExp' _ = unImplemented "Complex as-patterns"
+
+-- | Recursively replace wildcards in an exp with new names
+-- Useful for as patterns, so we can unbox patterns and re-pack them with a new name
+removeWildcards :: Pat -> Q Pat
+removeWildcards WildP = do
+  name <- newName "arg"
+  return $ VarP name
+removeWildcards (TupP l) = TupP <$> mapM removeWildcards l
+removeWildcards (UnboxedTupP l) = UnboxedTupP <$> mapM removeWildcards l
+removeWildcards (ConP n pl) = (ConP n) <$> mapM removeWildcards pl
+removeWildcards (InfixP p1 n p2) = do
+  ret1 <- removeWildcards p1
+  ret2 <- removeWildcards p2
+  return $ InfixP ret1 n ret2
+removeWildcards (UInfixP p1 n p2) = do
+  ret1 <- removeWildcards p1
+  ret2 <- removeWildcards p2
+  return $ UInfixP ret1 n ret2
+removeWildcards (ParensP p) = ParensP <$> removeWildcards p
+removeWildcards (AsP n p) = AsP n <$> removeWildcards p --TODO ignore name? Should get covered by other translation
+removeWildcards (ListP pList) = ListP <$> mapM removeWildcards pList
+removeWildcards p = return p --All other cases, nothing to remove, either simple or unsupported
+
+
 
 --------------------------------------------------------------------------
 -- |Translate a function body into Elm
@@ -234,7 +311,7 @@ translateBody (GuardedB guardExpList) = translateExpression $ MultiIfE guardExpL
 
 
 -- | Expression helper function to convert a Var to a String
-expressionToString (VarE name) = nameToString name
+expressionToString (VarE name) = nameToElmString name
 
 -- | Generic elm expression for "otherwise"
 elmOtherwise = E.Var "otherwise"
@@ -266,14 +343,15 @@ translateExpression :: Exp -> Q E.Expr
 
 --TODO multi pattern exp?
 translateExpression (LamE [pat] expBody) = do
-  ePat <- translatePattern pat
-  eBody <- translateExpression expBody
+  (ePat, asDecs) <- translatePattern pat
+  lambdaBody <- translateExpression expBody
+  let eBody = maybeLet asDecs lambdaBody
   return $ E.Lambda ePat (Lo.none eBody)
 
-translateExpression (VarE name) =  return $ E.Var $ nameToString name
+translateExpression (VarE name) =  return $ E.Var $ nameToElmString name
 
 --Just treat constructor as variable --TODO is this okay?
-translateExpression (ConE name) = return $ E.Var $ nameToString name
+translateExpression (ConE name) = return $ E.Var $ nameToElmString name
 
 translateExpression (LitE lit) = E.Literal <$> translateLiteral lit
 
@@ -318,9 +396,9 @@ translateExpression (CaseE exp matchList) = do
     return $ E.Case (Lo.none eExp) eMatch
     where
       getMatch (Match pat body whereDecs) = do
-        eWhere <- mapM translateDef whereDecs
+        (ePat, asDecs) <- translatePattern pat
+        eWhere <- (asDecs ++ ) <$> mapM translateDef whereDecs
         matchBody <- translateBody body 
-        ePat <- translatePattern pat
         let eBody = maybeLet eWhere matchBody
         return (ePat, Lo.none eBody)
 
@@ -414,9 +492,9 @@ translateType t = do
           return $ T.tupleOf tyList
       | otherwise = case t of
           --type variables
-          (VarT name) -> return $ T.Var (nameToString name)
+          (VarT name) -> return $ T.Var (nameToElmString name)
           --sum types/ADTs
-          (ConT name) -> return $ T.Data (nameToString name) [] --TODO what is this list param?
+          (ConT name) -> return $ T.Data (nameToElmString name) [] --TODO what is this list param?
           --functions
           (AppT (AppT ArrowT a) b) -> do
             ea <- translateType a
