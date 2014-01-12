@@ -15,3 +15,6 @@ theMin x y
   | x < y     = x
   | x == y    = x
   | otherwise = y
+  
+allZero 0 0 0 = True
+allZero _ _ _ = False

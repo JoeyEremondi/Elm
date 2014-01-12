@@ -97,7 +97,25 @@ translateDec (FunD name [Clause patList body whereDecs])  = do
     ePats <- mapM translatePattern patList
     return $ single $ D.Definition $ E.Definition (P.PVar eName) (makeFunction ePats (Lo.none eBody)) Nothing --TODO what is maybe arg?
     
-      
+--multi-clause case i.e. pattern matching
+--Convert to a single-clause function with a case statement
+translateDec (FunD name clauseList) = do
+  let ((Clause patList _ _):_) = clauseList
+  let numArgs = length patList
+  let argStrings = map (("arg" ++) . show) [1..numArgs]
+  argNames <- mapM newName argStrings
+  let argPatList = map VarP argNames
+  
+  let argTuple = TupE $ map VarE argNames
+  cases <- mapM clauseToCase clauseList
+  let newBody = NormalB $ CaseE argTuple cases
+  let singleClause = Clause argPatList newBody []
+  translateDec $ FunD name [singleClause]
+  where
+    clauseToCase (Clause patList body whereDecs) = do
+      let leftSide = TupP patList
+      return $ Match leftSide body whereDecs
+  
 
 translateDec (ValD pat body whereDecs)  = do
     valBody <- translateBody body
@@ -287,9 +305,11 @@ translateExpression (CaseE exp matchList) = do
     eMatch <- mapM getMatch matchList
     return $ E.Case (Lo.none eExp) eMatch
     where
-      getMatch (Match pat body _decList) = do
+      getMatch (Match pat body whereDecs) = do
+        eWhere <- mapM translateDef whereDecs
+        matchBody <- translateBody body 
         ePat <- translatePattern pat
-        eBody <- translateBody body
+        let eBody = maybeLet eWhere matchBody
         return (ePat, Lo.none eBody)
 
 translateExpression (ListE exps) = (E.ExplicitList . map Lo.none) <$> mapM translateExpression exps
