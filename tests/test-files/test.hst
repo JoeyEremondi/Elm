@@ -1,6 +1,10 @@
 data A = B Int | C String
 
-add3 z = x + y + z
+add13 z = 
+  let w = 
+    ww
+      where ww = 10
+  in x + y + z
   where x = 1
         y = 2
 

@@ -155,10 +155,12 @@ translateDec (TySynInstD name types theTy) = emitWarning "Type synonym instances
 translateDef :: Dec -> Q E.Def
 
 --TODO non-empty where?
-translateDef (ValD pat body _where) = do
+translateDef (ValD pat body whereDecs) = do
     ePat <- translatePattern pat
-    eExp <- translateBody body
-    return $ E.Definition ePat (Lo.none eExp) Nothing
+    eWhere <- mapM translateDef whereDecs
+    decBody <- translateBody body
+    let eBody = maybeLet eWhere decBody
+    return $ E.Definition ePat (Lo.none eBody) Nothing
 
 translateDef d = unImplemented "Non-simple function/value definitions"
 
@@ -306,7 +308,6 @@ translateExpression (InfixE _ _ _) = unImplemented "Operator sections i.e. (+3)"
 --Just ignore signature
 translateExpression (SigE exp _) = translateExpression exp
 
---Just ignore signature
 translateExpression e = unImplemented $ "Misc expression " ++ show e
 
 --------------------------------------------------------------------------
