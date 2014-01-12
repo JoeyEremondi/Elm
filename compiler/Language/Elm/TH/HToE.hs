@@ -59,7 +59,13 @@ translateCtor (NormalC name strictTyList) =  do
   return (nameToString name, tyList)
 --TODO handle record decs
 
-
+-- | Take a list of declarations and a body
+-- and put it in a let only if the declarations list is non-empty
+maybeLet :: [E.Def] -> E.Expr -> E.Expr 
+maybeLet eWhere eBody = 
+        if null eWhere
+          then  eBody
+          else E.Let eWhere (Lo.none eBody)
 
 --------------------------------------------------------------------------
 -- | Helper to get the fields of the Clause type
@@ -83,14 +89,20 @@ translateDec:: Dec -> Q [D.Declaration]
 
 --TODO translate where decs into elm let-decs
 --TODO what about when more than one clause?
-translateDec (FunD name [Clause patList body _where])  = do
+translateDec (FunD name [Clause patList body whereDecs])  = do
     let eName = nameToString name
-    eBody <- translateBody body
+    eWhere <- mapM translateDef whereDecs
+    fnBody <- translateBody body
+    let eBody = maybeLet eWhere fnBody
     ePats <- mapM translatePattern patList
     return $ single $ D.Definition $ E.Definition (P.PVar eName) (makeFunction ePats (Lo.none eBody)) Nothing --TODO what is maybe arg?
+    
+      
 
-translateDec (ValD pat body _where)  = do
-    eBody <- translateBody body
+translateDec (ValD pat body whereDecs)  = do
+    valBody <- translateBody body
+    eWhere <- mapM translateDef whereDecs
+    let eBody = maybeLet eWhere valBody
     ePat <- translatePattern pat
     return $ single $ D.Definition $ E.Definition ePat (Lo.none eBody) Nothing --TODO what is maybe arg?
 
@@ -105,7 +117,8 @@ translateDec dec@(DataD [] name tyBindings ctors names) = do
 
 
 --TODO data case for non-empty context?
-translateDec (DataD cxt name tyBindings ctors names) = unImplemented "Data decl with context"
+translateDec (DataD cxt name tyBindings ctors names) = 
+  emitWarning "Data declarations with TypeClass context"
 
 translateDec (NewtypeD cxt name tyBindings  ctor nameList) = unImplemented "Newtypes"
 
@@ -115,25 +128,25 @@ translateDec (TySynD name tyBindings ty) = do
     eTy <- translateType ty
     return $ single $ D.TypeAlias eName eTyVars eTy []
 
-translateDec (ClassD cxt name tyBindings funDeps decs ) = unImplemented "Class definitions"
-translateDec (InstanceD cxt ty decs) = unImplemented "Instance declarations"
+translateDec (ClassD cxt name tyBindings funDeps decs ) = emitWarning "Class definitions"
+translateDec (InstanceD cxt ty decs) = emitWarning "Instance declarations"
 
 --TODO fix signatures
 translateDec (SigD name ty) = return []--(single . D.Definition . (E.TypeAnnotation (nameToString name)) ) <$> translateType ty
-translateDec (ForeignD frn) = unImplemented "FFI declarations"
+translateDec (ForeignD frn) = emitWarning "FFI declarations"
 
 
-translateDec (PragmaD pragma)  = unImplemented "Haskell Pragmas"
+translateDec (PragmaD pragma)  = emitWarning "Haskell Pragmas"
 
 
-translateDec (FamilyD famFlavour name [tyVarBndr] mKind) = unImplemented "Type families"
+translateDec (FamilyD famFlavour name [tyVarBndr] mKind) = emitWarning "Type families"
 
-translateDec (DataInstD cxt name types ctors names) = unImplemented "Data instances"
+translateDec (DataInstD cxt name types ctors names) = emitWarning "Data instances"
 
 
-translateDec (NewtypeInstD cxt name types ctor names) = unImplemented "Newtypes instances"
+translateDec (NewtypeInstD cxt name types ctor names) = emitWarning "Newtypes instances"
 
-translateDec (TySynInstD name types theTy) = unImplemented "Type synonym instances"
+translateDec (TySynInstD name types theTy) = emitWarning "Type synonym instances"
 
 --------------------------------------------------------------------------
 -- | Convert a declaration to an elm Definition
@@ -275,13 +288,21 @@ translateExpression (CaseE exp matchList) = do
 
 translateExpression (ListE exps) = (E.ExplicitList . map Lo.none) <$> mapM translateExpression exps
 
---Infix where we have all the parts
-translateExpression (InfixE (Just e1) op (Just e2)) = do
+--Unboxed infix expression
+translateExpression (UInfixE e1 op e2) = do
     eE1 <- translateExpression e1
     eE2 <- translateExpression e2
     let eOp =  expressionToString op
     return $ E.Binop eOp (Lo.none eE1) (Lo.none eE2)
 
+--Infix where we have all the parts, i.e. not a section
+--Just translate as unboxed
+translateExpression (InfixE (Just e1) op (Just e2)) = 
+  translateExpression $ UInfixE e1 op e2
+  
+
+translateExpression (InfixE _ _ _) = unImplemented "Operator sections i.e. (+3)"    
+    
 --Just ignore signature
 translateExpression (SigE exp _) = translateExpression exp
 

@@ -25,8 +25,10 @@ $(decHaskAndElm "myGreatElmString"
         data Foo2 = TheBar | TheBaz
         
         unFoo x = case x of
-            Baz x -> Bar "3"
-            Bar y -> Baz [4] 
+            Baz x -> Bar ret
+            Bar y -> Baz [4]
+            where
+              ret = "3"
 
         x :: Int
         x = 3 + 4 - 5 * 67 `mod` 8

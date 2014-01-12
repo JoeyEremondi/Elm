@@ -43,7 +43,10 @@ import Control.Applicative
 -- | General error function for unimplemented features
 unImplemented s = error $ "Translation of the The following haskell feature is not yet implemented: " ++ s
 
-
+emitWarning :: String -> Q [a]
+emitWarning s = do
+  runIO $ putStrLn $ "Warning! Ignoring feature in Haskell source: " ++ s
+  return []
 
 
 -- |Stolen from Parse.Expression so we don't have to change any internal Elm code
