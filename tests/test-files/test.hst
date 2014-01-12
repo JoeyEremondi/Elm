@@ -1,12 +1,17 @@
 data A = B Int | C String
 
 add13 z = 
-  let w = 
-    ww
-      where ww = 10
-  in x + y + z
+  let 
+    ww = 10
+    w = ww
+  in w + x + y + z
   where x = 1
         y = 2
 
 someValue = x
   where x = 3
+
+theMin x y 
+  | x < y     = x
+  | x == y    = x
+  | otherwise = y

@@ -198,6 +198,10 @@ translatePattern _ = unImplemented "Misc patterns"
 -- Note that guarded bodies are currently unsupported
 translateBody  :: Body -> Q E.Expr
 translateBody (NormalB e) = translateExpression e
+--Just convert to a multi-way If statement
+translateBody (GuardedB guardExpList) = translateExpression $ MultiIfE guardExpList
+  
+
 
 -- | Expression helper function to convert a Var to a String
 expressionToString (VarE name) = nameToString name
@@ -264,7 +268,7 @@ translateExpression (CondE cond th el) = do
     return $ E.MultiIf [(eCond, eTh), (loOtherwise, eEl)]
 
 translateExpression (MultiIfE guardExpList) = do
-    expPairs <- mapM transPair guardExpList
+    expPairs <- mapM transPair guardExpList 
     return $ E.MultiIf expPairs
     where
         transPair (guard, exp) = do
