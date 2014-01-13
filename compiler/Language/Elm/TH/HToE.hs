@@ -43,34 +43,62 @@ import Data.List.Split (splitOn)
 import Control.Monad.State (StateT)
 import qualified Control.Monad.State as S
 
+import qualified Data.Map as Map
+
 {-|
 Haskell to Elm Translations
-Most of these functions operate in the StateT TranslationState Q monad, so that we can
+Most of these functions operate in the SQ monad, so that we can
 compare against Haskell expressions or types in quotes (see isIntType etc.)
 
 The return value is a list of Elm declarations
 -}
 
 
+type SQ a = StateT TranslationState Q a
+
 --Enum for the different state vars we can access
 data TranslationState = TranslationState {
-    records :: [(String, [String])]
+    records :: Map.Map String [String],
+    currentNum :: Int
   }
   
-defaultState = TranslationState []  
-  
+defaultState = TranslationState (Map.fromList []) 1 
+
+findRecords :: [Dec] -> SQ ()
+findRecords decs = 
+  do
+    mapM processDec decs
+    return ()
+  where
+    processDec :: Dec -> SQ ()
+    processDec (DataD _ _ _ ctors _) = do
+      mapM_ processCtor ctors
+      return ()
+    processDec (NewtypeD _ _ _ ctor _) = processCtor ctor
+    processDec _ = return ()
+    processCtor :: Con -> SQ ()
+    processCtor (RecC name vstList) = do
+      let str = (nameToString name) :: String
+      let (nameList, _, _) = unzip3 vstList
+      let names = map nameToString nameList
+      oldState <- S.get
+      let newState = oldState {records = Map.insert str names (records oldState)   }
+      S.put newState
+      return ()
+    processCtor _ = return ()
+
 --translate newName into our new monad
-liftNewName :: String -> StateT TranslationState Q Name
+liftNewName :: String -> SQ Name
 liftNewName s = S.lift $ newName s
 
   
-doEmitWarning :: String -> StateT TranslationState Q [a]
+doEmitWarning :: String -> SQ [a]
 doEmitWarning s = S.lift $ emitWarning s
 
 -- |Translate a constructor into a list of Strings and type-lists,
 -- Which Elm uses for its internal representation of constructors
 --Also returns declarations associated with records
-translateCtor :: Con -> StateT TranslationState Q ( (String,[T.Type]), [D.Declaration])
+translateCtor :: Con -> SQ ( (String,[T.Type]), [D.Declaration])
 translateCtor (NormalC name strictTyList) =  do
   let sndList = map snd strictTyList
   tyList <- mapM translateType sndList
@@ -81,7 +109,8 @@ translateCtor (RecC name vstList) =  do
   let nameTypes = map (\(a,_,b)->(a,b)) vstList
   recordTy <- translateRecord nameTypes
   let recordDecs = map (accessorDec . fst) nameTypes
-  return ( (nameToElmString name, [recordTy]), recordDecs) --TODO add decs 
+  let makerDec = recordMakerDec (nameToElmString name) (map (nameToElmString . fst) nameTypes)
+  return ( (nameToElmString name, [recordTy]), (makerDec:recordDecs)) --TODO add decs 
 
 --Elm has no concept of infix constructor
 translateCtor (InfixC t1 name t2) = translateCtor $ NormalC name [t1, t2]
@@ -114,7 +143,7 @@ single a = [a]
 
 -}
 
-translateDec:: Dec -> StateT TranslationState Q [D.Declaration]
+translateDec:: Dec -> SQ [D.Declaration]
 
 --TODO translate where decs into elm let-decs
 --TODO what about when more than one clause?
@@ -205,7 +234,7 @@ translateDec (TySynInstD name types theTy) = doEmitWarning "Type synonym instanc
 -- | Convert a declaration to an elm Definition
 -- Only works on certain types of declarations TODO document which
 
-translateDef :: Dec -> StateT TranslationState Q E.Def
+translateDef :: Dec -> SQ E.Def
 
 --TODO functions
 translateDef (ValD pat body whereDecs) = do
@@ -223,7 +252,7 @@ unFst x = (x, [])
 --------------------------------------------------------------------------
 -- |Translate a pattern match from Haskell to Elm
 
-translatePattern :: Pat -> StateT TranslationState Q (P.Pattern, [E.Def])
+translatePattern :: Pat -> SQ (P.Pattern, [E.Def])
 --Special case for As, to carry over the name
 translatePattern (AsP name initPat) = do
   (pat, patExp) <- patToExp initPat
@@ -254,8 +283,21 @@ translatePattern (TupP patList) = do
 translatePattern (UnboxedTupP patList) = translatePattern $ TupP patList  
 
 translatePattern (ConP name patList) = do
+  let str = nameToString name
   (patList, allAsDecs) <- unzip <$> mapM translatePattern patList
-  return (P.PData (nameToElmString name) patList, concat allAsDecs) 
+  recMap <- records <$> S.get
+  if (Map.member str recMap  )
+     then do
+       let varNames = recMap Map.! str
+       let decs = map makeDef $ zip patList varNames
+       return (P.PData str $ [P.PRecord varNames], decs ++ (concat allAsDecs))
+       
+     else do
+      return (P.PData (nameToElmString name) patList, concat allAsDecs) 
+  where 
+    makeDef :: (P.Pattern, String) -> E.Def
+    makeDef (pat, varString) = E.Definition pat (Lo.none $ E.Var varString) Nothing
+    
 
 --Just pass through parentheses
 translatePattern (ParensP p) = translatePattern p
@@ -293,7 +335,7 @@ translatePattern (ViewP _ _) = unImplemented "View patterns"
 -------------------------------------------------------------------------
 -- | Convert a pattern into an expression
 -- Useful for as patterns, so we can do pattern checking as well as multiple naming
-patToExp :: Pat -> StateT TranslationState Q (Pat, Exp)
+patToExp :: Pat -> SQ (Pat, Exp)
 patToExp p = do
   noWild <- removeWildcards [1..]  p
   return (noWild, patToExp' noWild)
@@ -321,7 +363,7 @@ doWithNames nameList patList = do
 -- | Recursively replace wildcards in an exp with new names
 -- Useful for as patterns, so we can unbox patterns and re-pack them with a new name
 --Assumes we have an infinite list of names to take
-removeWildcards :: [Int] -> Pat -> StateT TranslationState Q Pat
+removeWildcards :: [Int] -> Pat -> SQ Pat
 removeWildcards (i:_) WildP = do
   name <- liftNewName $ ("arg_" ++ ( show i))
   return $ VarP name
@@ -346,7 +388,7 @@ removeWildcards nameList p = return p --All other cases, nothing to remove, eith
 
 --------------------------------------------------------------------------
 -- |Translate a function body into Elm
-translateBody  :: Body -> StateT TranslationState Q E.Expr
+translateBody  :: Body -> SQ E.Expr
 translateBody (NormalB e) = translateExpression e
 --Just convert to a multi-way If statement
 translateBody (GuardedB guardExpList) = translateExpression $ MultiIfE guardExpList
@@ -382,7 +424,7 @@ Currently supported:
 Supported but not translated:
   Type signatures
 -}
-translateExpression :: Exp -> StateT TranslationState Q E.Expr
+translateExpression :: Exp -> SQ E.Expr
 
 --TODO multi pattern exp?
 translateExpression (LamE [pat] expBody) = do
@@ -399,6 +441,19 @@ translateExpression (ConE name) = return $ E.Var $ nameToElmString name
 translateExpression (LitE lit) = E.Literal <$> translateLiteral lit
 
 --Lo.none converts expressions to located expressions with no location
+
+--Special case for records, we need a curry-able function to construct records in Elm
+translateExpression (AppE fun@(ConE ctor) arg) = do
+  recMap <- records <$> S.get
+  let str = nameToString ctor
+  if Map.member str recMap
+     then do
+       let recordFunc = mkName $ recordMakerName (nameToString ctor)
+       translateExpression (AppE (VarE recordFunc) arg)
+     else do
+        eFun <- translateExpression fun
+        eArg <- translateExpression arg
+        return $ E.App (Lo.none eFun) (Lo.none eArg)
 
 translateExpression (AppE fun arg) = do
     eFun <- translateExpression fun
@@ -484,7 +539,7 @@ translateExpression e = unImplemented $ "Misc expression " ++ show e
 -- |Translate a literal value from Haskell to Elm
 -- Strings are translated into strings, not char lists
 
-translateLiteral :: Lit-> StateT TranslationState Q  L.Literal
+translateLiteral :: Lit-> SQ  L.Literal
 translateLiteral = return . noQTrans where
     noQTrans (CharL c) = L.Chr c
 
@@ -506,7 +561,7 @@ translateLiteral = return . noQTrans where
 
 
 -- | Translate a Haskell range. Infinite lists not supported, since Elm is strict
-translateRange :: Range -> StateT TranslationState Q E.Expr
+translateRange :: Range -> SQ E.Expr
 translateRange (FromToR start end) = do
   e1 <- Lo.none <$> translateExpression start
   e2 <- Lo.none <$> translateExpression end
@@ -522,7 +577,7 @@ Translate a Haskell type into an Elm type
 Currently translates primitive types, lists, tuples and constructors (ADTs)
 Doesn't support type classes or fancier types
 -}
-translateType :: Type -> StateT TranslationState Q T.Type
+translateType :: Type -> SQ T.Type
 
 translateType (ForallT _ _ _ ) = unImplemented "forall types"
 translateType (PromotedT _ ) = unImplemented "promoted types"
@@ -548,7 +603,7 @@ translateType t = do
   isBool <- S.lift $ isBoolType t
   generalTranslate isInt isString isFloat isBool --TODO get these in scope
   where
-    generalTranslate :: Bool -> Bool -> Bool -> Bool -> StateT TranslationState Q T.Type
+    generalTranslate :: Bool -> Bool -> Bool -> Bool -> SQ T.Type
     generalTranslate isInt isString isFloat isBool
       | isInt = return $ T.Data "Int" []
       | isString = return $ T.Data "String" []
@@ -582,7 +637,7 @@ translateType t = do
 
             
 -- | Special record type translation
-translateRecord :: [(Name, Type)] -> StateT TranslationState Q T.Type
+translateRecord :: [(Name, Type)] -> SQ T.Type
 translateRecord nameTyList = do
   let (nameList, tyList) = unzip nameTyList
   let eNames = map nameToElmString nameList
@@ -601,7 +656,20 @@ accessorDec name =
     funBody = E.Access (Lo.none $ varExp) nameString
     fun = E.Lambda varPat (Lo.none funBody)
   in D.Definition $ E.Definition (P.PVar nameString) (Lo.none fun) Nothing
-    
+
+recordMakerDec :: String -> [String] -> D.Declaration
+recordMakerDec ctor vars =
+  let
+      argNames = map (("arg" ++) . show) [1 .. (length vars)]
+      patList = map P.PVar argNames
+      expList = map (Lo.none . E.Var) argNames
+      recordCons = Lo.none $ E.Record $ zip vars expList
+      funBody = E.App (Lo.none $ E.Var ctor) recordCons
+      fun = makeCurry patList funBody 
+  in D.Definition $ E.Definition (P.PVar $ recordMakerName ctor) (Lo.none fun) Nothing
+  where makeCurry argPats body = foldr (\pat body-> E.Lambda pat (Lo.none body) ) body argPats
+  
+recordMakerName name =  "makeRecord_" ++ name  
 --------------------------------------------------------------------------
 {-|
 Conversion from Haskell namespaces and prelude names

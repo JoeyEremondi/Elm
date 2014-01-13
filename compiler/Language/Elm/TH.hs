@@ -86,9 +86,14 @@ toElm name decs = do
   toJsonDecs <- Json.makeToJson decs
   let jsonDecs = fromJsonDecs ++ toJsonDecs
   sumDecs <- Json.giantSumType decs
-  elmDecs <- evalStateT  (concat <$> mapM HToE.translateDec (decs ++ jsonDecs ++ sumDecs) ) HToE.defaultState
+  elmDecs <- evalStateT  (concat <$> translateDecs (decs ++ jsonDecs ++ sumDecs)  ) HToE.defaultState
   return $ M.Module [name] [] [] elmDecs --TODO imports/exports?
 
+--Single stateful computation to store record state information  
+translateDecs decs = do
+  HToE.findRecords decs
+  mapM HToE.translateDec decs
+  
 -- | Given a module name and a list of template-haskell declarations
 -- | translate the declarations into Elm and return the string of the translated module
 toElmString :: String -> [Dec] -> Q String
