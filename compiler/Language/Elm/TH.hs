@@ -72,6 +72,8 @@ import System.Directory
 
 import Control.Applicative ((<$>))
 
+import Control.Monad.State (evalStateT)
+
 -- | General error function for unimplemented features
 unImplemented s = error $ "Translation of the The following haskell feature is not yet implemented: " ++ s
 
@@ -80,11 +82,11 @@ unImplemented s = error $ "Translation of the The following haskell feature is n
 -- and generates a translated Elm AST module
 toElm :: String -> [Dec] -> Q (M.Module D.Declaration)
 toElm name decs = do
-  --fromJsonDecs <- Json.makeFromJson decs
-  --toJsonDecs <- Json.makeToJson decs
-  --let jsonDecs = fromJsonDecs ++ toJsonDecs
-  --sumDecs <- Json.giantSumType decs
-  elmDecs <- concat <$> mapM HToE.translateDec  decs -- ++ (jsonDecs ++ sumDecs)
+  fromJsonDecs <- Json.makeFromJson decs
+  toJsonDecs <- Json.makeToJson decs
+  let jsonDecs = fromJsonDecs ++ toJsonDecs
+  sumDecs <- Json.giantSumType decs
+  elmDecs <- evalStateT  (concat <$> mapM HToE.translateDec (decs ++ jsonDecs ++ sumDecs) ) HToE.defaultState
   return $ M.Module [name] [] [] elmDecs --TODO imports/exports?
 
 -- | Given a module name and a list of template-haskell declarations
@@ -119,7 +121,7 @@ decsFromFile varName filePath = do
 
 baseCode =  "getType (Object d) = case (Dict.lookup \"__type\" d) of (Just (Json.String t)) -> t\n" 
                ++ "getCtor (Object d) = case (Dict.lookup \"__ctor\" d) of (Just (Json.String c)) -> c\n"
-               ++ "nthVar (Object d) n= case (Dict.lookup (show n) d) of (Just val) -> val\n"
+               ++ "varNamed (Object d) n= case (Dict.lookup (show n) d) of (Just val) -> val\n"
                ++ "mapJson f (Array l) = map f l\n"
                ++ "makeList  (Array l) = l\n"
 

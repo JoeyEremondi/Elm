@@ -98,8 +98,8 @@ jsonPat :: Pat
 jsonPat = VarP (mkName "json") 
 
 -- | Variable for the getter function getting the nth variable from a Json
-nthVar :: Exp
-nthVar = VarE (mkName "nthVar")
+varNamed :: Exp
+varNamed = VarE (mkName "varNamed")
 
 -- | Variable for the getter function getting the nth variable from a Json
 jsonType :: Exp
@@ -110,8 +110,8 @@ jsonCtor :: Exp
 jsonCtor = VarE (mkName "getCtor")
 
 -- | Expression getting the nth subvariable from a JSON object
-getNthVar :: String -> Exp
-getNthVar nstr = AppE (AppE nthVar json ) (LitE $ StringL nstr)
+getVarNamed :: String -> Exp
+getVarNamed nstr = AppE (AppE varNamed json ) (LitE $ StringL nstr)
 
 -- | Expression to access the "type" field of a JSON object
 getType :: Exp
@@ -193,23 +193,23 @@ unJsonType t
         
 -- | Generate a declaration, and a name bound in that declaration,
 -- Which unpacks a value of the given type from the nth field of a JSON object
-getSubJson :: (Type, Int) -> Q (Name, Dec)
+getSubJson :: (String, Type) -> Q (Name, Dec)
 -- We need special cases for lists and tuples, to unpack them
 --TODO recursive case
-getSubJson (t, n) = do
+getSubJson (field, t) = do
   funToApply <- unJsonType t
   subName <- newName "subVar"
   let subLeftHand = VarP subName
-  let subRightHand = NormalB $ AppE funToApply (getNthVar $ show n)
+  let subRightHand = NormalB $ AppE funToApply (getVarNamed field)
   return (subName, ValD subLeftHand subRightHand [])
-  
+
 
 -- | Given a type constructor, generate the match which matches the "ctor" field of a JSON object
 -- | to apply the corresponding constructor to the proper arguments, recursively extracted from the JSON
 fromMatchForCtor :: Con -> Q Match        
 fromMatchForCtor (NormalC name types) = do
   let matchPat = LitP $ StringL $ nameToString name
-  (subNames, subDecs) <- unzip <$> mapM getSubJson (zip (map snd types) [1,2..])
+  (subNames, subDecs) <- unzip <$> mapM getSubJson (zip (map show [1,2..] ) (map snd types) )
   let body = NormalB $ if null subNames
               then applyArgs subNames ctorExp
               else LetE subDecs (applyArgs subNames ctorExp)
@@ -219,8 +219,16 @@ fromMatchForCtor (NormalC name types) = do
     applyArgs t accum = foldl (\ accum h -> AppE accum (VarE h)) accum t 
 
 fromMatchForCtor (RecC name vstList) = do
-  let nameTypes = map (\(a,_,b)->(a,b)) vstList
-  return $ unImplemented "Records for JSON"
+  let nameTypes = map (\(a,_,b)->(nameToString a,b)) vstList
+  let matchPat = LitP $ StringL $ nameToString name
+  (subNames, subDecs) <- unzip <$> mapM getSubJson nameTypes
+  let body = NormalB $ if null subNames
+              then applyArgs subNames ctorExp
+              else LetE subDecs (applyArgs subNames ctorExp)
+  return $ Match matchPat body []
+  where
+    ctorExp = ConE name
+    applyArgs t accum = foldl (\ accum h -> AppE accum (VarE h)) accum t
     
 -- | Given a type delcaration, generate the match which matches the "type" field of a JSON object
 -- and then defers to a case statement on constructors for that type
@@ -284,6 +292,19 @@ toMatchForCtor typeName (NormalC name types) = do
   let body = NormalB $ LetE (jsonDecs ++ [dictDec]) ret
   return $ Match matchPat body []
 
+toMatchForCtor typeName (RecC name vstList) = do
+  let (adtNames, _, types) = unzip3 vstList
+  let n = length types
+  jsonNames <- nNames n "jsonVar"
+  let adtPats = map VarP adtNames
+  let matchPat = ConP name adtPats
+  jsonDecs <- mapM makeSubJson (zip3 types adtNames jsonNames)
+  dictName <- newName "objectDict"
+  dictDec <-  makeDict typeName name dictName jsonNames
+  let ret = AppE (VarE $ mkName "Json.Object") (VarE dictName)
+  let body = NormalB $ LetE (jsonDecs ++ [dictDec]) ret
+  return $ Match matchPat body []  
+  
 -- | Generate the declaration of a dictionary mapping field names to values
 -- to be used with the JSON Object constructor
 makeDict :: Name -> Name -> Name -> [Name] -> Q Dec    

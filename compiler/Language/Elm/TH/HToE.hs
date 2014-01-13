@@ -40,21 +40,37 @@ import Control.Applicative
 
 import Data.List.Split (splitOn)
 
+import Control.Monad.State (StateT)
+import qualified Control.Monad.State as S
+
 {-|
 Haskell to Elm Translations
-Most of these functions operate in the Q monad, so that we can
+Most of these functions operate in the StateT TranslationState Q monad, so that we can
 compare against Haskell expressions or types in quotes (see isIntType etc.)
 
 The return value is a list of Elm declarations
 -}
 
 
+--Enum for the different state vars we can access
+data TranslationState = TranslationState {
+    records :: [(String, [String])]
+  }
+  
+defaultState = TranslationState []  
+  
+--translate newName into our new monad
+liftNewName :: String -> StateT TranslationState Q Name
+liftNewName s = S.lift $ newName s
 
+  
+doEmitWarning :: String -> StateT TranslationState Q [a]
+doEmitWarning s = S.lift $ emitWarning s
 
 -- |Translate a constructor into a list of Strings and type-lists,
 -- Which Elm uses for its internal representation of constructors
 --Also returns declarations associated with records
-translateCtor :: Con -> Q ( (String,[T.Type]), [D.Declaration])
+translateCtor :: Con -> StateT TranslationState Q ( (String,[T.Type]), [D.Declaration])
 translateCtor (NormalC name strictTyList) =  do
   let sndList = map snd strictTyList
   tyList <- mapM translateType sndList
@@ -98,7 +114,7 @@ single a = [a]
 
 -}
 
-translateDec:: Dec -> Q [D.Declaration]
+translateDec:: Dec -> StateT TranslationState Q [D.Declaration]
 
 --TODO translate where decs into elm let-decs
 --TODO what about when more than one clause?
@@ -118,7 +134,7 @@ translateDec (FunD name clauseList) = do
   let ((Clause patList _ _):_) = clauseList
   let numArgs = length patList
   let argStrings = map (("arg" ++) . show) [1..numArgs]
-  argNames <- mapM newName argStrings
+  argNames <- mapM liftNewName argStrings
   let argPatList = map VarP argNames
   
   let argTuple = TupE $ map VarE argNames
@@ -152,7 +168,7 @@ translateDec dec@(DataD [] name tyBindings ctors names) = do
 
 --TODO data case for non-empty context?
 translateDec (DataD cxt name tyBindings ctors names) = 
-  emitWarning "Data declarations with TypeClass context"
+  doEmitWarning "Data declarations with TypeClass context"
 
 --We just translate newTypes as Data definitions
 --TODO: what about when record notation is used?
@@ -165,31 +181,31 @@ translateDec (TySynD name tyBindings ty) = do
     eTy <- translateType ty
     return $ single $ D.TypeAlias eName eTyVars eTy []
 
-translateDec (ClassD cxt name tyBindings funDeps decs ) = emitWarning "Class definitions"
-translateDec (InstanceD cxt ty decs) = emitWarning "Instance declarations"
+translateDec (ClassD cxt name tyBindings funDeps decs ) = doEmitWarning "Class definitions"
+translateDec (InstanceD cxt ty decs) = doEmitWarning "Instance declarations"
 
 --TODO fix signatures
 translateDec (SigD name ty) = return []--(single . D.Definition . (E.TypeAnnotation (nameToString name)) ) <$> translateType ty
-translateDec (ForeignD frn) = emitWarning "FFI declarations"
+translateDec (ForeignD frn) = doEmitWarning "FFI declarations"
 
 
-translateDec (PragmaD pragma)  = emitWarning "Haskell Pragmas"
+translateDec (PragmaD pragma)  = doEmitWarning "Haskell Pragmas"
 
 
-translateDec (FamilyD famFlavour name [tyVarBndr] mKind) = emitWarning "Type families"
+translateDec (FamilyD famFlavour name [tyVarBndr] mKind) = doEmitWarning "Type families"
 
-translateDec (DataInstD cxt name types ctors names) = emitWarning "Data instances"
+translateDec (DataInstD cxt name types ctors names) = doEmitWarning "Data instances"
 
 
-translateDec (NewtypeInstD cxt name types ctor names) = emitWarning "Newtypes instances"
+translateDec (NewtypeInstD cxt name types ctor names) = doEmitWarning "Newtypes instances"
 
-translateDec (TySynInstD name types theTy) = emitWarning "Type synonym instances"
+translateDec (TySynInstD name types theTy) = doEmitWarning "Type synonym instances"
 
 --------------------------------------------------------------------------
 -- | Convert a declaration to an elm Definition
 -- Only works on certain types of declarations TODO document which
 
-translateDef :: Dec -> Q E.Def
+translateDef :: Dec -> StateT TranslationState Q E.Def
 
 --TODO functions
 translateDef (ValD pat body whereDecs) = do
@@ -207,7 +223,7 @@ unFst x = (x, [])
 --------------------------------------------------------------------------
 -- |Translate a pattern match from Haskell to Elm
 
-translatePattern :: Pat -> Q (P.Pattern, [E.Def])
+translatePattern :: Pat -> StateT TranslationState Q (P.Pattern, [E.Def])
 --Special case for As, to carry over the name
 translatePattern (AsP name initPat) = do
   (pat, patExp) <- patToExp initPat
@@ -277,7 +293,7 @@ translatePattern (ViewP _ _) = unImplemented "View patterns"
 -------------------------------------------------------------------------
 -- | Convert a pattern into an expression
 -- Useful for as patterns, so we can do pattern checking as well as multiple naming
-patToExp :: Pat -> Q (Pat, Exp)
+patToExp :: Pat -> StateT TranslationState Q (Pat, Exp)
 patToExp p = do
   noWild <- removeWildcards [1..]  p
   return (noWild, patToExp' noWild)
@@ -305,9 +321,9 @@ doWithNames nameList patList = do
 -- | Recursively replace wildcards in an exp with new names
 -- Useful for as patterns, so we can unbox patterns and re-pack them with a new name
 --Assumes we have an infinite list of names to take
-removeWildcards :: [Int] -> Pat -> Q Pat
+removeWildcards :: [Int] -> Pat -> StateT TranslationState Q Pat
 removeWildcards (i:_) WildP = do
-  name <- newName $ ("arg_" ++ ( show i))
+  name <- liftNewName $ ("arg_" ++ ( show i))
   return $ VarP name
 removeWildcards nameList (TupP l) = do
   TupP <$> doWithNames nameList l
@@ -330,7 +346,7 @@ removeWildcards nameList p = return p --All other cases, nothing to remove, eith
 
 --------------------------------------------------------------------------
 -- |Translate a function body into Elm
-translateBody  :: Body -> Q E.Expr
+translateBody  :: Body -> StateT TranslationState Q E.Expr
 translateBody (NormalB e) = translateExpression e
 --Just convert to a multi-way If statement
 translateBody (GuardedB guardExpList) = translateExpression $ MultiIfE guardExpList
@@ -366,7 +382,7 @@ Currently supported:
 Supported but not translated:
   Type signatures
 -}
-translateExpression :: Exp -> Q E.Expr
+translateExpression :: Exp -> StateT TranslationState Q E.Expr
 
 --TODO multi pattern exp?
 translateExpression (LamE [pat] expBody) = do
@@ -468,7 +484,7 @@ translateExpression e = unImplemented $ "Misc expression " ++ show e
 -- |Translate a literal value from Haskell to Elm
 -- Strings are translated into strings, not char lists
 
-translateLiteral :: Lit-> Q  L.Literal
+translateLiteral :: Lit-> StateT TranslationState Q  L.Literal
 translateLiteral = return . noQTrans where
     noQTrans (CharL c) = L.Chr c
 
@@ -490,7 +506,7 @@ translateLiteral = return . noQTrans where
 
 
 -- | Translate a Haskell range. Infinite lists not supported, since Elm is strict
-translateRange :: Range -> Q E.Expr
+translateRange :: Range -> StateT TranslationState Q E.Expr
 translateRange (FromToR start end) = do
   e1 <- Lo.none <$> translateExpression start
   e2 <- Lo.none <$> translateExpression end
@@ -506,7 +522,7 @@ Translate a Haskell type into an Elm type
 Currently translates primitive types, lists, tuples and constructors (ADTs)
 Doesn't support type classes or fancier types
 -}
-translateType :: Type -> Q T.Type
+translateType :: Type -> StateT TranslationState Q T.Type
 
 translateType (ForallT _ _ _ ) = unImplemented "forall types"
 translateType (PromotedT _ ) = unImplemented "promoted types"
@@ -526,13 +542,13 @@ translateType (LitT _) = error "Type literals"
 --Cases which aren't captured by basic pattern matching
 translateType t = do
   --Unbox some Monad information that we need
-  isInt <- isIntType t
-  isString <- isStringType t
-  isFloat <- isFloatType t
-  isBool <- isBoolType t
+  isInt <- S.lift $ isIntType t
+  isString <- S.lift $ isStringType t
+  isFloat <- S.lift $ isFloatType t
+  isBool <- S.lift $ isBoolType t
   generalTranslate isInt isString isFloat isBool --TODO get these in scope
   where
-    generalTranslate :: Bool -> Bool -> Bool -> Bool -> Q T.Type
+    generalTranslate :: Bool -> Bool -> Bool -> Bool -> StateT TranslationState Q T.Type
     generalTranslate isInt isString isFloat isBool
       | isInt = return $ T.Data "Int" []
       | isString = return $ T.Data "String" []
@@ -566,7 +582,7 @@ translateType t = do
 
             
 -- | Special record type translation
-translateRecord :: [(Name, Type)] -> Q T.Type
+translateRecord :: [(Name, Type)] -> StateT TranslationState Q T.Type
 translateRecord nameTyList = do
   let (nameList, tyList) = unzip nameTyList
   let eNames = map nameToElmString nameList
