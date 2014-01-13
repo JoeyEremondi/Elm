@@ -80,11 +80,11 @@ unImplemented s = error $ "Translation of the The following haskell feature is n
 -- and generates a translated Elm AST module
 toElm :: String -> [Dec] -> Q (M.Module D.Declaration)
 toElm name decs = do
-  fromJsonDecs <- Json.makeFromJson decs
-  toJsonDecs <- Json.makeToJson decs
-  let jsonDecs = fromJsonDecs ++ toJsonDecs
-  sumDecs <- Json.giantSumType decs
-  elmDecs <- concat <$> mapM HToE.translateDec (decs ++ jsonDecs ++ sumDecs)
+  --fromJsonDecs <- Json.makeFromJson decs
+  --toJsonDecs <- Json.makeToJson decs
+  --let jsonDecs = fromJsonDecs ++ toJsonDecs
+  --sumDecs <- Json.giantSumType decs
+  elmDecs <- concat <$> mapM HToE.translateDec  decs -- ++ (jsonDecs ++ sumDecs)
   return $ M.Module [name] [] [] elmDecs --TODO imports/exports?
 
 -- | Given a module name and a list of template-haskell declarations

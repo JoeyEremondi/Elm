@@ -217,7 +217,11 @@ fromMatchForCtor (NormalC name types) = do
   where
     ctorExp = ConE name
     applyArgs t accum = foldl (\ accum h -> AppE accum (VarE h)) accum t 
-  
+
+fromMatchForCtor (RecC name vstList) = do
+  let nameTypes = map (\(a,_,b)->(a,b)) vstList
+  return $ unImplemented "Records for JSON"
+    
 -- | Given a type delcaration, generate the match which matches the "type" field of a JSON object
 -- and then defers to a case statement on constructors for that type
 fromMatchForType :: Dec -> Q Match

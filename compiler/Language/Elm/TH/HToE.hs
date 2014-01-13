@@ -53,12 +53,24 @@ The return value is a list of Elm declarations
 
 -- |Translate a constructor into a list of Strings and type-lists,
 -- Which Elm uses for its internal representation of constructors
-translateCtor :: Con -> Q (String,[T.Type])
+--Also returns declarations associated with records
+translateCtor :: Con -> Q ( (String,[T.Type]), [D.Declaration])
 translateCtor (NormalC name strictTyList) =  do
   let sndList = map snd strictTyList
   tyList <- mapM translateType sndList
-  return (nameToElmString name, tyList)
---TODO handle record decs
+  return ( (nameToElmString name, tyList), [])
+
+translateCtor (RecC name vstList) =  do
+  --ignore strictness
+  let nameTypes = map (\(a,_,b)->(a,b)) vstList
+  recordTy <- translateRecord nameTypes
+  let recordDecs = map (accessorDec . fst) nameTypes
+  return ( (nameToElmString name, [recordTy]), recordDecs) --TODO add decs 
+
+--Elm has no concept of infix constructor
+translateCtor (InfixC t1 name t2) = translateCtor $ NormalC name [t1, t2]
+
+translateCtor (ForallC _ _ _) = unImplemented "forall constructors"
 
 -- | Take a list of declarations and a body
 -- and put it in a let only if the declarations list is non-empty
@@ -131,8 +143,8 @@ translateDec (ValD pat body whereDecs)  = do
 
 translateDec dec@(DataD [] name tyBindings ctors names) = do
     --jsonDecs <- deriveFromJSON defaultOptions name
-    eCtors <- mapM translateCtor ctors
-    return [ D.Datatype eName eTyVars eCtors []] --TODO derivations?
+    (eCtors, extraDecLists) <- unzip <$> mapM translateCtor ctors
+    return $ [ D.Datatype eName eTyVars eCtors []] ++ (concat extraDecLists) --TODO derivations?
     where
         eName = nameToElmString name
         eTyVars = map (nameToElmString . tyVarToName) tyBindings
@@ -552,6 +564,28 @@ translateType t = do
             elm2 <- translateType t2
             return $ unImplemented "misc types"
 
+            
+-- | Special record type translation
+translateRecord :: [(Name, Type)] -> Q T.Type
+translateRecord nameTyList = do
+  let (nameList, tyList) = unzip nameTyList
+  let eNames = map nameToElmString nameList
+  eTypes <- mapM translateType tyList
+  return $ T.recordOf $ zip eNames eTypes
+  
+--Generate the function declarations associated with a record type
+accessorDec :: Name -> D.Declaration
+--Names are always local
+accessorDec name = 
+  let
+    nameString = nameToString name
+    var = "rec"
+    varExp = E.Var var
+    varPat = P.PVar var
+    funBody = E.Access (Lo.none $ varExp) nameString
+    fun = E.Lambda varPat (Lo.none funBody)
+  in D.Definition $ E.Definition (P.PVar nameString) (Lo.none fun) Nothing
+    
 --------------------------------------------------------------------------
 {-|
 Conversion from Haskell namespaces and prelude names

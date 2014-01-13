@@ -35,3 +35,6 @@ maybeZero l@(h:_:_) = Just l
 myRange = [1 .. 10]
 
 myOtherRange = [33 .. 91]
+
+--basic record type
+data Point = Point {px::Int, py::Int}
