@@ -40,6 +40,9 @@ import Language.Elm.TH.Util
 
 import Control.Applicative
 
+import Control.Monad.State (StateT)
+import qualified Control.Monad.State as S
+
 
 ------------------------------------------------------------------------------------
 --Helpers to make to and fromJson functions
@@ -130,27 +133,27 @@ sumTypePrefix :: String
 sumTypePrefix = "BoxedJson"
 
 -- |The String argument of the massive JSON sum type property denoting a given ADT
-typeString :: Name -> Q String
+typeString :: Name -> SQ String
 typeString name = return $ sumTypePrefix ++ "_" ++  nameToString name
 
 
 -- |The Pattern to unbox a value into its type from the massive sum type
 -- | the second argument is the name to bind the value to
-unJsonPat :: Name -> Name -> Q Pat
+unJsonPat :: Name -> Name -> SQ Pat
 unJsonPat typeName nameToBind = do
   typeCtor <- mkName <$> typeString typeName
   return $ ConP typeCtor [VarP nameToBind]
 
 -- | The name of the constructor which wraps
 -- the type with the given name into the giant sum type
-sumTypeCtor :: Name -> Q Name
+sumTypeCtor :: Name -> SQ Name
 sumTypeCtor name = mkName <$> typeString name
 
 -- | Recursively generates an expression for the function which takes an argument of type BoxedJson
 -- and converts it, while also extracting it from the BoxedJson type
-unJsonType :: Type -> Q Exp
+unJsonType :: Type -> SQ Exp
 unJsonType (ConT name) = do
-  argName <- newName "x"
+  argName <- liftNewName "x"
   lambdaPat <- unJsonPat name argName
   let unCtor = LamE [lambdaPat] (VarE argName)
   return $ InfixE (Just unCtor) fnComp (Just fromJson)
@@ -173,7 +176,7 @@ unJsonType t
       let n = length tList
       --Generate the lambda to convert the list into a tuple
       subFunList <- mapM unJsonType tList
-      argNames <- mapM (newName . ("x" ++) . show) [1 .. n]
+      argNames <- mapM (liftNewName . ("x" ++) . show) [1 .. n]
       let argValues = map VarE argNames
       let argPat = ListP $ map VarP argNames
       let lambdaBody = TupE $ zipWith AppE subFunList argValues
@@ -182,10 +185,10 @@ unJsonType t
       
       return $ InfixE (Just lambda) fnComp (Just makeList)
   | otherwise = do
-      test <- isIntType t
+      test <- S.lift $ isIntType t
       case test of
         True -> do
-          argName <- newName "x"
+          argName <- liftNewName "x"
           lambdaPat <- unJsonPat (mkName "Int") argName
           let unCtor = LamE [lambdaPat] (AppE (VarE (mkName "round")) (VarE argName) )
           return $ InfixE (Just unCtor) fnComp (Just fromJson)
@@ -193,12 +196,12 @@ unJsonType t
         
 -- | Generate a declaration, and a name bound in that declaration,
 -- Which unpacks a value of the given type from the nth field of a JSON object
-getSubJson :: (String, Type) -> Q (Name, Dec)
+getSubJson :: (String, Type) -> SQ (Name, Dec)
 -- We need special cases for lists and tuples, to unpack them
 --TODO recursive case
 getSubJson (field, t) = do
   funToApply <- unJsonType t
-  subName <- newName "subVar"
+  subName <- liftNewName "subVar"
   let subLeftHand = VarP subName
   let subRightHand = NormalB $ AppE funToApply (getVarNamed field)
   return (subName, ValD subLeftHand subRightHand [])
@@ -206,7 +209,7 @@ getSubJson (field, t) = do
 
 -- | Given a type constructor, generate the match which matches the "ctor" field of a JSON object
 -- | to apply the corresponding constructor to the proper arguments, recursively extracted from the JSON
-fromMatchForCtor :: Con -> Q Match        
+fromMatchForCtor :: Con -> SQ Match        
 fromMatchForCtor (NormalC name types) = do
   let matchPat = LitP $ StringL $ nameToString name
   (subNames, subDecs) <- unzip <$> mapM getSubJson (zip (map show [1,2..] ) (map snd types) )
@@ -232,12 +235,12 @@ fromMatchForCtor (RecC name vstList) = do
     
 -- | Given a type delcaration, generate the match which matches the "type" field of a JSON object
 -- and then defers to a case statement on constructors for that type
-fromMatchForType :: Dec -> Q Match
+fromMatchForType :: Dec -> SQ Match
 fromMatchForType dec@(DataD _ name _ ctors []) = do
   let matchPat = LitP $ StringL $ nameToString name
   ctorMatches <- mapM fromMatchForCtor ctors
   let typeBody = NormalB $ CaseE getCtor ctorMatches
-  jsonName <- newName "typedJson"
+  jsonName <- liftNewName "typedJson"
   typeCtor <- sumTypeCtor name
   let typeBodyDec = ValD (VarP jsonName) typeBody []
   let ret = AppE (ConE typeCtor) (VarE jsonName)
@@ -249,7 +252,7 @@ fromMatchForType (NewtypeD cxt name tyBindings  ctor nameList) =
   
 -- |Given a list of declarations, generate the fromJSON function for all
 -- types defined in the declaration list
-makeFromJson :: [Dec] -> Q [Dec]
+makeFromJson :: [Dec] -> SQ [Dec]
 makeFromJson allDecs = do
   let decs = filter isData allDecs
   typeMatches <- mapM fromMatchForType decs
@@ -262,7 +265,7 @@ makeFromJson allDecs = do
 -----------------------------------------------------------------------
 -- |Given a list of declarations, generate the toJSON function for all
 -- types defined in the declaration list
-makeToJson :: [Dec] -> Q [Dec]
+makeToJson :: [Dec] -> SQ [Dec]
 makeToJson allDecs = do
   let decs = filter isData allDecs
   typeMatches <- mapM toMatchForType decs
@@ -271,14 +274,14 @@ makeToJson allDecs = do
   return [ FunD (mkName "toJson") [Clause [jsonPat] body []] ]
 
 -- | Helper function to generate a the names X1 .. Xn with some prefix X  
-nNames :: Int -> String -> Q [Name]
+nNames :: Int -> String -> SQ [Name]
 nNames n base = do
   let varStrings = map (\n -> base ++ show n) [1..n]
-  mapM newName varStrings
+  mapM liftNewName varStrings
 
 --Generate the Match which matches against the given constructor
 --then packs its argument into a JSON with the proper type, ctor and argument data
-toMatchForCtor :: Name -> Con -> Q Match        
+toMatchForCtor :: Name -> Con -> SQ Match        
 toMatchForCtor typeName (NormalC name types) = do
   let n = length types
   adtNames <- nNames n "adtVar"
@@ -286,7 +289,7 @@ toMatchForCtor typeName (NormalC name types) = do
   let adtPats = map VarP adtNames
   let matchPat = ConP name adtPats
   jsonDecs <- mapM makeSubJson (zip3 (map snd types) adtNames jsonNames)
-  dictName <- newName "objectDict"
+  dictName <- liftNewName "objectDict"
   dictDec <-  makeDict typeName name dictName jsonNames
   let ret = AppE (VarE $ mkName "Json.Object") (VarE dictName)
   let body = NormalB $ LetE (jsonDecs ++ [dictDec]) ret
@@ -299,7 +302,7 @@ toMatchForCtor typeName (RecC name vstList) = do
   let adtPats = map VarP adtNames
   let matchPat = ConP name adtPats
   jsonDecs <- mapM makeSubJson (zip3 types adtNames jsonNames)
-  dictName <- newName "objectDict"
+  dictName <- liftNewName "objectDict"
   dictDec <-  makeDict typeName name dictName jsonNames
   let ret = AppE (VarE $ mkName "Json.Object") (VarE dictName)
   let body = NormalB $ LetE (jsonDecs ++ [dictDec]) ret
@@ -307,7 +310,7 @@ toMatchForCtor typeName (RecC name vstList) = do
   
 -- | Generate the declaration of a dictionary mapping field names to values
 -- to be used with the JSON Object constructor
-makeDict :: Name -> Name -> Name -> [Name] -> Q Dec    
+makeDict :: Name -> Name -> Name -> [Name] -> SQ Dec    
 makeDict typeName ctorName dictName jsonNames = do
   let leftSide = VarP dictName
   let jsonExps = map VarE jsonNames
@@ -323,9 +326,9 @@ makeDict typeName ctorName dictName jsonNames = do
   
  -- |Generate the Match which matches against the BoxedJson constructor
  -- to properly encode a given type
-toMatchForType :: Dec -> Q Match
+toMatchForType :: Dec -> SQ Match
 toMatchForType dec@(DataD _ name _ ctors []) = do
-  varName <- newName "adt"
+  varName <- liftNewName "adt"
   matchPat <- unJsonPat name varName
   ctorMatches <- mapM (toMatchForCtor name) ctors
   let body = NormalB $ CaseE (VarE varName) ctorMatches
@@ -335,7 +338,7 @@ toMatchForType (NewtypeD cxt name tyBindings  ctor nameList) =
   toMatchForType $ DataD cxt name tyBindings [ctor] nameList
 -- | Generate the declaration of a value converted to Json
 -- given the name of an ADT value to convert
-makeSubJson :: (Type, Name, Name) -> Q Dec
+makeSubJson :: (Type, Name, Name) -> SQ Dec
 -- We need special cases for lists and tuples, to unpack them
 --TODO recursive case
 makeSubJson (t, adtName, jsonName) = do
@@ -347,10 +350,10 @@ makeSubJson (t, adtName, jsonName) = do
 -- | For a type, generate the expression for the function which takes a value of that type
 --  and converts it to JSON
 -- used to recursively convert the data of ADTs
-pureJsonType :: Type -> Q Exp
+pureJsonType :: Type -> SQ Exp
 --Base case: if an ADT, just call toJson with the appropriate constructor
 pureJsonType (ConT name) = do
-  argName <- newName "adt"
+  argName <- liftNewName "adt"
   typeCtor <- sumTypeCtor name
   lambdaPat <- unJsonPat name argName
   let addCtor = LamE [VarP argName] (AppE (ConE typeCtor) (VarE argName))
@@ -375,7 +378,7 @@ pureJsonType t
       let n = length tList
       --Generate the lambda to convert the list into a tuple
       subFunList <- mapM pureJsonType tList
-      argNames <- mapM (newName . ("x" ++) . show) [1 .. n]
+      argNames <- mapM (liftNewName . ("x" ++) . show) [1 .. n]
       let argValues = map VarE argNames
       let argPat = TupP $ map VarP argNames
       --Get each tuple element as Json, then wrap them in a Json Array
@@ -386,7 +389,7 @@ pureJsonType t
 
 -- | Generate a giant sum type representing all of the types within this module
 -- this allows us to use toJson and fromJson without having typeClasses
-giantSumType :: [Dec] -> Q [Dec]
+giantSumType :: [Dec] -> SQ [Dec]
 giantSumType allDecs = do
   let decs = filter isData allDecs
   let typeNames = map getTypeName decs ++  map mkName ["Int", "Float", "Bool", "String"] --TODO lists?

@@ -54,15 +54,6 @@ The return value is a list of Elm declarations
 -}
 
 
-type SQ a = StateT TranslationState Q a
-
---Enum for the different state vars we can access
-data TranslationState = TranslationState {
-    records :: Map.Map String [String],
-    currentNum :: Int
-  }
-  
-defaultState = TranslationState (Map.fromList []) 1 
 
 findRecords :: [Dec] -> SQ ()
 findRecords decs = 
@@ -87,13 +78,7 @@ findRecords decs =
       return ()
     processCtor _ = return ()
 
---translate newName into our new monad
-liftNewName :: String -> SQ Name
-liftNewName s = S.lift $ newName s
 
-  
-doEmitWarning :: String -> SQ [a]
-doEmitWarning s = S.lift $ emitWarning s
 
 -- |Translate a constructor into a list of Strings and type-lists,
 -- Which Elm uses for its internal representation of constructors
@@ -513,8 +498,23 @@ translateExpression (UInfixE e1 op e2) = do
 --Just translate as unboxed
 translateExpression (InfixE (Just e1) op (Just e2)) = 
   translateExpression $ UInfixE e1 op e2
-  
 
+translateExpression e@(RecConE name nameExpList ) = do
+  let (names, expList) = unzip nameExpList
+  eExps <- mapM translateExpression expList
+  let stringList = map nameToString names
+  let lexps = map Lo.none eExps
+  return $ E.App (Lo.none $ E.Var $ nameToString name) (Lo.none $ E.Record $ zip stringList lexps)
+
+translateExpression e@(RecUpdE recExp nameExpList ) = do
+  unImplemented "Record update syntax"--TODO fix
+  let (names, expList) = unzip nameExpList
+  eExps <- mapM translateExpression expList
+  let lexps = map Lo.none eExps
+  let varStrings = map nameToString names
+  eRec <- translateExpression recExp
+  return $ E.App (Lo.none $ E.Var $ "fixmeTODO") (Lo.none $ E.Modify (Lo.none eRec) ( zip varStrings lexps) )
+  
 translateExpression (InfixE _ _ _) = unImplemented "Operator sections i.e. (+3)"    
     
 --Just ignore signature
@@ -529,9 +529,9 @@ translateExpression e@(DoE _) = unImplemented $ "Sugared do notation: " ++ show 
 
 translateExpression e@(CompE _) = unImplemented $ "List comprehensions: " ++ show e
 
-translateExpression e@(RecConE _ _ ) = unImplemented $ "Record construction: " ++ show e
 
-translateExpression e@(RecUpdE _ _ ) = unImplemented $ "Record update: " ++ show e
+
+
 
 translateExpression e = unImplemented $ "Misc expression " ++ show e
 

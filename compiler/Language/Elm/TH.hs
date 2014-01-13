@@ -56,6 +56,7 @@ import Language.Haskell.TH.Lib
 
 import qualified Language.Elm.TH.HToE as HToE
 import qualified Language.Elm.TH.Json as Json
+import qualified Language.Elm.TH.Util as Util
 
 import qualified Data.Map as Map
 import Data.List (intercalate)
@@ -82,11 +83,11 @@ unImplemented s = error $ "Translation of the The following haskell feature is n
 -- and generates a translated Elm AST module
 toElm :: String -> [Dec] -> Q (M.Module D.Declaration)
 toElm name decs = do
-  fromJsonDecs <- Json.makeFromJson decs
-  toJsonDecs <- Json.makeToJson decs
+  fromJsonDecs <- evalStateT  (Json.makeFromJson decs) Util.defaultState
+  toJsonDecs <- evalStateT  (Json.makeToJson decs) Util.defaultState
   let jsonDecs = fromJsonDecs ++ toJsonDecs
-  sumDecs <- Json.giantSumType decs
-  elmDecs <- evalStateT  (concat <$> translateDecs (decs ++ jsonDecs ++ sumDecs)  ) HToE.defaultState
+  sumDecs <- evalStateT  (Json.giantSumType decs) Util.defaultState
+  elmDecs <- evalStateT  (concat <$> translateDecs (decs ++ jsonDecs ++ sumDecs)  ) Util.defaultState
   return $ M.Module [name] [] [] elmDecs --TODO imports/exports?
 
 --Single stateful computation to store record state information  

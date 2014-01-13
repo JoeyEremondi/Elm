@@ -38,6 +38,38 @@ import Language.Haskell.TH.Desugar
 
 import Control.Applicative
 
+import Control.Monad.State (StateT)
+import qualified Control.Monad.State as S
+
+import qualified Data.Map as Map
+
+--translate newName into our new monad
+liftNewName :: String -> SQ Name
+liftNewName s = do
+  oldState <- S.get
+  let num = currentNum oldState
+  name <- S.lift $ newName $ s ++ "__xxfreshxx__" ++ show num
+  S.put $ oldState {currentNum = num + 1}
+  return name
+
+  
+doEmitWarning :: String -> SQ [a]
+doEmitWarning s = S.lift $ emitWarning s
+
+
+--State information
+
+type SQ a = StateT TranslationState Q a
+
+--Enum for the different state vars we can access
+data TranslationState = TranslationState {
+    records :: Map.Map String [String],
+    currentNum :: Int
+  }
+  
+defaultState = TranslationState (Map.fromList []) 1 
+
+
 
 
 -- | General error function for unimplemented features
