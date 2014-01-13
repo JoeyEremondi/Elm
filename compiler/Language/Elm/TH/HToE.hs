@@ -38,6 +38,7 @@ import Language.Elm.TH.Util
 
 import Control.Applicative
 
+import Data.List.Split (splitOn)
 
 {-|
 Haskell to Elm Translations
@@ -193,10 +194,10 @@ unFst x = (x, [])
 
 translatePattern :: Pat -> Q (P.Pattern, [E.Def])
 --Special case for As, to carry over the name
-translatePattern (AsP name pat) = do
-  runIO $ putStrLn "In as-case of translate pattern"
+translatePattern (AsP name initPat) = do
+  (pat, patExp) <- patToExp initPat
   (retPat, subDecs) <- translatePattern $ pat
-  patExp <- patToExp pat
+  
   dec <- translateDef $ ValD (VarP name) (NormalB patExp) []
   return (retPat, [dec] ++ subDecs)
 {-
@@ -261,8 +262,11 @@ translatePattern (ViewP _ _) = unImplemented "View patterns"
 -------------------------------------------------------------------------
 -- | Convert a pattern into an expression
 -- Useful for as patterns, so we can do pattern checking as well as multiple naming
-patToExp :: Pat -> Q Exp
-patToExp p = patToExp' <$> removeWildcards p
+patToExp :: Pat -> Q (Pat, Exp)
+patToExp p = do
+  noWild <- removeWildcards [1..]  p
+  return (noWild, patToExp' noWild)
+  
   where
     patToExp' (LitP l) = LitE l
     patToExp' (VarP n) = VarE n
@@ -277,29 +281,37 @@ patToExp p = patToExp' <$> removeWildcards p
     patToExp' (ListP pList) = ListE $ map patToExp' pList
     patToExp' _ = unImplemented "Complex as-patterns"
 
+doWithNames nameList patList = do
+  let nameLists = splitListN (length patList) nameList
+  let fnsToApply = [removeWildcards nl | nl <- nameLists]
+  let tuples = zip fnsToApply patList
+  mapM (\(f,x)-> f $ x) tuples
+    
 -- | Recursively replace wildcards in an exp with new names
 -- Useful for as patterns, so we can unbox patterns and re-pack them with a new name
-removeWildcards :: Pat -> Q Pat
-removeWildcards WildP = do
-  name <- newName "arg"
+--Assumes we have an infinite list of names to take
+removeWildcards :: [Int] -> Pat -> Q Pat
+removeWildcards (i:_) WildP = do
+  name <- newName $ ("arg_" ++ ( show i))
   return $ VarP name
-removeWildcards (TupP l) = TupP <$> mapM removeWildcards l
-removeWildcards (UnboxedTupP l) = UnboxedTupP <$> mapM removeWildcards l
-removeWildcards (ConP n pl) = (ConP n) <$> mapM removeWildcards pl
-removeWildcards (InfixP p1 n p2) = do
-  ret1 <- removeWildcards p1
-  ret2 <- removeWildcards p2
+removeWildcards nameList (TupP l) = do
+  TupP <$> doWithNames nameList l
+removeWildcards nameList (UnboxedTupP l) = UnboxedTupP <$> doWithNames nameList l
+removeWildcards nameList (ConP n pl) = (ConP n) <$> doWithNames nameList pl
+removeWildcards nameList (InfixP p1 n p2) = do
+  let (l1, l2) = splitList nameList
+  ret1 <- removeWildcards l1 p1
+  ret2 <- removeWildcards l2 p2
   return $ InfixP ret1 n ret2
-removeWildcards (UInfixP p1 n p2) = do
-  ret1 <- removeWildcards p1
-  ret2 <- removeWildcards p2
+removeWildcards nameList (UInfixP p1 n p2) = do
+  let (l1, l2) = splitList nameList
+  ret1 <- removeWildcards l1 p1
+  ret2 <- removeWildcards l2 p2
   return $ UInfixP ret1 n ret2
-removeWildcards (ParensP p) = ParensP <$> removeWildcards p
-removeWildcards (AsP n p) = AsP n <$> removeWildcards p --TODO ignore name? Should get covered by other translation
-removeWildcards (ListP pList) = ListP <$> mapM removeWildcards pList
-removeWildcards p = return p --All other cases, nothing to remove, either simple or unsupported
-
-
+removeWildcards nameList (ParensP p) = ParensP <$> removeWildcards nameList p
+removeWildcards nameList (AsP n p) = AsP n <$> removeWildcards nameList p --TODO ignore name? Should get covered by other translation
+removeWildcards nameList (ListP pList) = ListP <$> doWithNames nameList pList
+removeWildcards nameList p = return p --All other cases, nothing to remove, either simple or unsupported
 
 --------------------------------------------------------------------------
 -- |Translate a function body into Elm
@@ -509,4 +521,53 @@ translateType t = do
             return $ T.listOf et
           _ -> unImplemented "misc types"
 
-          
+--------------------------------------------------------------------------
+{-|
+Conversion from Haskell namespaces and prelude names
+to Elm base names
+-}
+
+nameToElmString :: Name -> String
+nameToElmString = getElmName . nameToString
+
+getElmName :: String -> String
+
+getElmName "$"  = "<|"
+
+--Cons should get translated automatically, but just in case
+getElmName ":"  = "::"
+
+--Not a change, but lets us search for . in module names
+getElmName "." = "."
+
+--Specific cases
+getElmName s
+    | length partList > 1 = getElmModuleName modul name
+    --Default: don't change the string
+    | otherwise = s
+    where 
+          name = last partList
+          modul = concat $ init partList
+          partList = (splitOn "." s)
+
+--modules that are supported by Elm
+elmHasFunction :: String -> String -> Bool
+elmHasFunction "Dict" s = s `elem` ["empty", "singleton", "insert", "update", "remove", "member", "lookup", "findWithDefault",
+                            "union", "intersect", "diff", "keys", "values", "toList", "fromList", "map", "foldl", "foldr"]
+
+elmHasFunction "Json" s = s `elem` ["String", "Number", "Boolean", "Null", "Array", "Object"]                            
+                            
+elmHasFunction _ _ = False   
+    
+getElmModuleName :: String -> String -> String    
+--TODO fix infix?    
+getElmModuleName "Data.Map" s = "Dict." ++ case s of --TODO are there any special cases?
+    _ -> if (elmHasFunction "Dict" s) 
+        then s
+        else error "Elm Dictionary doesn't support operation " ++ s
+
+getElmModuleName "Data.Aeson" s = "Json." ++ case s of
+    _ -> if (elmHasFunction "Json" s) 
+            then s
+            else error "Elm Dictionary doesn't support operation " ++ s
+getElmModuleName m s = m ++ "." ++ s

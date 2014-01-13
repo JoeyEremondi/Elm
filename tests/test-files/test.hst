@@ -26,5 +26,5 @@ allZero 0 0 0 = True
 allZero _ _ _ = False
 
 --As-patterns
-wrapMaybe Nothing = Nothing
-maybeZero l@(Just x) = Just l 
+wrapMaybe [] = Nothing
+maybeZero l@(h:_:_) = Just l 

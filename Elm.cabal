@@ -123,7 +123,8 @@ Library
                        haskell-src-meta,
                        vector,
                        th-desugar,
-                       temporary
+                       temporary,
+                       split
 
 Executable elm
   Main-is:             Compiler.hs
@@ -334,4 +335,5 @@ Test-Suite test-elm
                    haskell-src-meta,
                    vector,
                    th-desugar,
-                   temporary
+                   temporary,
+                   split

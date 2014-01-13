@@ -70,8 +70,22 @@ nameToString name =
                       then nameBase name
                       else showName name
 
---TODO do namespace conversion
-nameToElmString = nameToString
+--Split a list into two alternating lists
+--from http://www.haskell.org/haskellwiki/Blow_your_mind
+splitList :: [a] -> ([a], [a])
+splitList = foldr (\a ~(x,y) -> (a:y,x)) ([],[])
+
+splitListN :: Int -> [a] -> [[a]]
+splitListN 0 l = []
+splitListN 1 l = [l]
+splitListN 2 l = let (l1, l2) = splitList l
+                 in [l1, l2]
+splitListN n l
+  | even n = let (l1, l2) = splitList l
+             in (splitListN (quot n 2) l1) ++ (splitListN (quot n 2) l2)
+  | otherwise = let (l1, l2) = splitList l
+             in [l1] ++ (splitListN (n-1) l2)
+                      
 --------------------------------------------------------------------------
 -- |Type helper functions
 --  We use these, since String comparison is insufficients:
