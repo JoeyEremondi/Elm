@@ -434,8 +434,10 @@ translateExpression (InfixE _ _ _) = unImplemented "Operator sections i.e. (+3)"
 --Just ignore signature
 translateExpression (SigE exp _) = translateExpression exp
 
---TODO implement ranges
-translateExpression e@(ArithSeqE _) = unImplemented $ "Ranges: " ++ show e
+translateExpression e@(ArithSeqE r) = translateRange r
+
+translateExpression e@(LamCaseE _) = unImplemented $ "Lambda case expressions: " ++ show e
+
 
 translateExpression e@(DoE _) = unImplemented $ "Sugared do notation: " ++ show e
 
@@ -460,6 +462,8 @@ translateLiteral = return . noQTrans where
     noQTrans (IntegerL i) = L.IntNum $ fromInteger i
 
     noQTrans (IntPrimL i) =  L.IntNum $ fromInteger i
+    
+    noQTrans (WordPrimL i) =  L.IntNum $ fromInteger i
 
     noQTrans (FloatPrimL f) = L.FloatNum $ fromRational f
 
@@ -467,10 +471,17 @@ translateLiteral = return . noQTrans where
 
     noQTrans (RationalL f) = L.FloatNum $ fromRational f
 
-    noQTrans _ = unImplemented "Misc literals"
+    noQTrans (StringPrimL) = unImplemented "C-string literals"
 
 
-
+-- | Translate a Haskell range. Infinite lists not supported, since Elm is strict
+translateRange :: Range -> Q E.Expr
+translateRange (FromToR start end) = do
+  e1 <- Lo.none <$> translateExpression start
+  e2 <- Lo.none <$> translateExpression end
+  return $ E.Range e1 e2
+  
+translateRange _ = unImplemented "Infinite ranges, or ranges with steps not equal to 1"
 
 
 
@@ -481,6 +492,19 @@ Currently translates primitive types, lists, tuples and constructors (ADTs)
 Doesn't support type classes or fancier types
 -}
 translateType :: Type -> Q T.Type
+
+translateType (ForallT _ _ _ ) = unImplemented "forall types"
+translateType (PromotedT _ ) = unImplemented "promoted types"
+translateType (PromotedTupleT _ ) = unImplemented "promoted tuple types"
+translateType (PromotedNilT ) = unImplemented "promoted nil types"
+translateType (PromotedConsT ) = unImplemented "promoted cons types"
+translateType (StarT) = unImplemented "star types"
+translateType (UnboxedTupleT i ) = translateType $ TupleT i
+translateType ArrowT = error "Arrow type: Should never recurse this far down"
+translateType ListT = error "List type: Should never recurse this far down"
+translateType ArrowT = error "Should never recurse this far down"
+translateType ConstraintT = unImplemented "Type constraints"
+translateType LitT = error "Type literals"
 
 
 --TODO fill in other cases, esp records
@@ -519,7 +543,11 @@ translateType t = do
           (AppT ListT t) -> do
             et <- translateType t
             return $ T.listOf et
-          _ -> unImplemented "misc types"
+          --This case is guaranteed to be an error, but we get a better message if we recurse
+          (AppT t1 t2) -> do
+            elm1 <- translateType t1
+            elm2 <- translateType t2
+            return $ unImplemented "misc types"
 
 --------------------------------------------------------------------------
 {-|

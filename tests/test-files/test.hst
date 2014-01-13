@@ -1,5 +1,5 @@
 --Basic data declaration
-data A = B Int | C String String | D
+data A = B Int | C String String | D | E (Int -> String -> (Float, Float) -> [Char])
 
 --Where in function declaration
 add13 z = 
@@ -27,4 +27,8 @@ allZero _ _ _ = False
 
 --As-patterns
 wrapMaybe [] = Nothing
-maybeZero l@(h:_:_) = Just l 
+maybeZero l@(h:_:_) = Just l
+
+myRange = [1 .. 10]
+
+myOtherRange = [33 .. 91]
