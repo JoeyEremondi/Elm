@@ -1,5 +1,8 @@
 --Basic data declaration
-data A = B Int | C String String | D | E (Int -> String -> (Float, Float) -> [Char])
+data A = B Int | C String String | D 
+
+--newtype, should get translated as Data
+newtype OtherInt = OtherInt Int
 
 --Where in function declaration
 add13 z = 

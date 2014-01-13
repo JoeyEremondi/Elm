@@ -78,6 +78,7 @@ jsonCase = map makeJsonCase1 list1 ++ map makeJsonCase0 list0 ++ [listCase]
 -- | Filter function to test if a dec is a data
 isData :: Dec -> Bool
 isData DataD{} = True
+isData NewtypeD{} = True
 isData _ = False
 
 -- | Expression for the fromJson function
@@ -188,6 +189,7 @@ unJsonType t
           lambdaPat <- unJsonPat (mkName "Int") argName
           let unCtor = LamE [lambdaPat] (AppE (VarE (mkName "round")) (VarE argName) )
           return $ InfixE (Just unCtor) fnComp (Just fromJson)
+        _ -> unImplemented $ "Can't un-json type " ++ show t
         
 -- | Generate a declaration, and a name bound in that declaration,
 -- Which unpacks a value of the given type from the nth field of a JSON object
@@ -230,6 +232,9 @@ fromMatchForType dec@(DataD _ name _ ctors []) = do
   let body = NormalB $ LetE [typeBodyDec] ret
   return $ Match matchPat body []
 
+fromMatchForType (NewtypeD cxt name tyBindings  ctor nameList) = 
+  fromMatchForType $ DataD cxt name tyBindings [ctor] nameList  
+  
 -- |Given a list of declarations, generate the fromJSON function for all
 -- types defined in the declaration list
 makeFromJson :: [Dec] -> Q [Dec]
@@ -301,6 +306,8 @@ toMatchForType dec@(DataD _ name _ ctors []) = do
   let body = NormalB $ CaseE (VarE varName) ctorMatches
   return $ Match matchPat body []  
 
+toMatchForType (NewtypeD cxt name tyBindings  ctor nameList) = 
+  toMatchForType $ DataD cxt name tyBindings [ctor] nameList
 -- | Generate the declaration of a value converted to Json
 -- given the name of an ADT value to convert
 makeSubJson :: (Type, Name, Name) -> Q Dec
@@ -368,3 +375,4 @@ giantSumType allDecs = do
     where 
       getTypeName :: Dec -> Name
       getTypeName (DataD _ name _ _ _ ) = name
+      getTypeName (NewtypeD _ name _tyBindings  _ctor _nameList) = name

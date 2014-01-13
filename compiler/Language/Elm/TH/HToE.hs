@@ -142,7 +142,10 @@ translateDec dec@(DataD [] name tyBindings ctors names) = do
 translateDec (DataD cxt name tyBindings ctors names) = 
   emitWarning "Data declarations with TypeClass context"
 
-translateDec (NewtypeD cxt name tyBindings  ctor nameList) = unImplemented "Newtypes"
+--We just translate newTypes as Data definitions
+--TODO: what about when record notation is used?
+translateDec (NewtypeD cxt name tyBindings  ctor nameList) = 
+  translateDec $ DataD cxt name tyBindings [ctor] nameList
 
 translateDec (TySynD name tyBindings ty) = do
     let eName = nameToElmString name
@@ -471,7 +474,7 @@ translateLiteral = return . noQTrans where
 
     noQTrans (RationalL f) = L.FloatNum $ fromRational f
 
-    noQTrans (StringPrimL) = unImplemented "C-string literals"
+    noQTrans (StringPrimL _) = unImplemented "C-string literals"
 
 
 -- | Translate a Haskell range. Infinite lists not supported, since Elm is strict
@@ -504,7 +507,7 @@ translateType ArrowT = error "Arrow type: Should never recurse this far down"
 translateType ListT = error "List type: Should never recurse this far down"
 translateType ArrowT = error "Should never recurse this far down"
 translateType ConstraintT = unImplemented "Type constraints"
-translateType LitT = error "Type literals"
+translateType (LitT _) = error "Type literals"
 
 
 --TODO fill in other cases, esp records

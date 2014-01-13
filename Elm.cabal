@@ -286,7 +286,8 @@ Executable haskelm
                        haskell-src-meta,
                        vector,
                        th-desugar,
-                       temporary
+                       temporary,
+                       split
 Test-Suite test-elm
   Type:            exitcode-stdio-1.0
   ghc-options:     -ddump-splices
