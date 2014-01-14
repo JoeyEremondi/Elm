@@ -624,7 +624,7 @@ translateType t = do
             return $ T.Lambda ea eb
 
           --empty tuple/record
-          (TupleT 0) -> return T.EmptyRecord
+          (TupleT 0) -> return $ T.recordOf []
           --Lists and tuples, just Data in Elm
           (AppT ListT t) -> do
             et <- translateType t

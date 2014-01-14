@@ -49,6 +49,8 @@ Library
                        SourceSyntax.PrettyPrint,
                        SourceSyntax.Type,
                        Generate.JavaScript,
+                       Generate.JavaScript.Helpers,
+                       Generate.JavaScript.Ports,
                        Generate.Noscript,
                        Generate.Markdown,
                        Generate.Html,
@@ -96,7 +98,6 @@ Library
                        Language.Elm.TH.HToE
                        Language.Elm.TH.Json
                        Language.Elm.TH.Util
-  extensions: TemplateHaskell MultiWayIf
 
   Build-depends:       aeson,
                        base >=4.2 && <5,
@@ -140,6 +141,8 @@ Executable elm
                        SourceSyntax.PrettyPrint,
                        SourceSyntax.Type,
                        Generate.JavaScript,
+                       Generate.JavaScript.Helpers,
+                       Generate.JavaScript.Ports,
                        Generate.Noscript,
                        Generate.Markdown,
                        Generate.Html,
@@ -246,7 +249,6 @@ Executable elm-doc
 Executable haskelm
   Main-is:             Haskelm.hs
   Hs-Source-Dirs:      compiler
-  extensions:	       TemplateHaskell
   other-modules:       SourceSyntax.Declaration,
                        SourceSyntax.Expression,
                        SourceSyntax.Helpers,
@@ -291,7 +293,6 @@ Executable haskelm
 Test-Suite test-elm
   Type:            exitcode-stdio-1.0
   ghc-options:     -ddump-splices
-  extensions:      TemplateHaskell MultiWayIf
   Hs-Source-Dirs:  tests, compiler
   Main-is:         Main.hs
   other-modules:   Tests.Compiler

@@ -1,4 +1,4 @@
-module Tests.TH where
+
 
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE  QuasiQuotes #-}
@@ -7,6 +7,8 @@ module Tests.TH where
 {-# LANGUAGE CPP #-} 
 {-# OPTIONS_GHC -ddump-splices #-}
 {-# LANGUAGE TemplateHaskell, QuasiQuotes, MultiWayIf #-}
+
+module Tests.TH where
 
 import Language.Elm.TH
 import Test.Framework

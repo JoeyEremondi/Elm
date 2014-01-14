@@ -11,9 +11,10 @@
 -- |
 --
 -----------------------------------------------------------------------------
+{-# LANGUAGE TemplateHaskell, QuasiQuotes, MultiWayIf #-}
+
 module Language.Elm.TH.Util where
 
-{-# LANGUAGE TemplateHaskell, QuasiQuotes, MultiWayIf #-}
 
 import Language.Haskell.TH.Syntax
 
