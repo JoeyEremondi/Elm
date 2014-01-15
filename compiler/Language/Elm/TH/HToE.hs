@@ -95,7 +95,8 @@ translateCtor (RecC name vstList) =  do
   recordTy <- translateRecord nameTypes
   let recordDecs = map (accessorDec . fst) nameTypes
   let makerDec = recordMakerDec (nameToElmString name) (map (nameToElmString . fst) nameTypes)
-  return ( (nameToElmString name, [recordTy]), (makerDec:recordDecs)) --TODO add decs 
+  let unboxDec = recordUnboxDec (nameToElmString name)
+  return ( (nameToElmString name, [recordTy]), (makerDec:unboxDec:recordDecs)) --TODO add decs 
 
 --Elm has no concept of infix constructor
 translateCtor (InfixC t1 name t2) = translateCtor $ NormalC name [t1, t2]
@@ -507,13 +508,16 @@ translateExpression e@(RecConE name nameExpList ) = do
   return $ E.App (Lo.none $ E.Var $ nameToString name) (Lo.none $ E.Record $ zip stringList lexps)
 
 translateExpression e@(RecUpdE recExp nameExpList ) = do
-  unImplemented "Record update syntax"--TODO fix
   let (names, expList) = unzip nameExpList
   eExps <- mapM translateExpression expList
   let lexps = map Lo.none eExps
   let varStrings = map nameToString names
   eRec <- translateExpression recExp
-  return $ E.App (Lo.none $ E.Var $ "fixmeTODO") (Lo.none $ E.Modify (Lo.none eRec) ( zip varStrings lexps) )
+  recMap <- records <$> S.get
+  recName <- nameToString <$> liftNewName "rec"
+  let ctor = recordWithFields recMap (map nameToString names)
+  let internalRecDef = E.Definition (P.PVar recName) (Lo.none $ E.App (Lo.none $ E.Var $ unboxRecordName ctor) (Lo.none eRec)) Nothing
+  return $ E.Let [internalRecDef] $ Lo.none $ E.App (Lo.none $ E.Var ctor) (Lo.none $ E.Modify (Lo.none $ E.Var recName) ( zip varStrings lexps) )
   
 translateExpression (InfixE _ _ _) = unImplemented "Operator sections i.e. (+3)"    
     
@@ -668,8 +672,17 @@ recordMakerDec ctor vars =
       fun = makeCurry patList funBody 
   in D.Definition $ E.Definition (P.PVar $ recordMakerName ctor) (Lo.none fun) Nothing
   where makeCurry argPats body = foldr (\pat body-> E.Lambda pat (Lo.none body) ) body argPats
+
+recordUnboxDec :: String ->  D.Declaration
+recordUnboxDec ctor  =
+  let
+      pat = P.PData ctor [P.PVar "x"]
+      body = E.Var "x"
+      fun = E.Lambda pat (Lo.none body)
+  in D.Definition $ E.Definition (P.PVar $ unboxRecordName ctor) (Lo.none fun) Nothing
   
-recordMakerName name =  "makeRecord_" ++ name  
+recordMakerName name =  "makeRecord__" ++ name
+unboxRecordName name =  "unboxRecord__" ++ name 
 --------------------------------------------------------------------------
 {-|
 Conversion from Haskell namespaces and prelude names

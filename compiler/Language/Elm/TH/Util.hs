@@ -154,3 +154,18 @@ isTupleType _ = False
 -- | Helper function to linearize the AppT of tuple types
 tupleTypeToList (AppT (TupleT _arity) t) = [t]
 tupleTypeToList (AppT t1 t2) = tupleTypeToList t1 ++ [t2]
+
+-- | Given a record dictionary, find constructor for one containing all the given fields
+recordWithFields :: Map.Map String [String] -> [String] -> String
+recordWithFields recMap fields = 
+  case ctors of
+       [] -> unImplemented $ "Records from other modules\n" ++ (show recMap) ++ "\n" ++ (show fields)
+       [(ctor, _)] -> ctor
+       _ -> unImplemented "Records sharing field names"
+  where
+    recList = Map.toList recMap
+    hasFields (_, fieldsInRecord) = not $ null (filter (`elem` fields) fieldsInRecord)
+    ctors = filter hasFields recList
+    
+    
+                                      
