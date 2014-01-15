@@ -1,6 +1,8 @@
 --Basic data declaration
 data A = B Int | C String String | D 
 
+type AnotherA = A
+
 --newtype, should get translated as Data
 newtype OtherInt = OtherInt Int
 

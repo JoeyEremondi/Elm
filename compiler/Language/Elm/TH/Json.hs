@@ -82,6 +82,7 @@ jsonCase = map makeJsonCase1 list1 ++ map makeJsonCase0 list0 ++ [listCase]
 isData :: Dec -> Bool
 isData DataD{} = True
 isData NewtypeD{} = True
+isData TySynD{} = True
 isData _ = False
 
 -- | Expression for the fromJson function
@@ -249,6 +250,14 @@ fromMatchForType dec@(DataD _ name _ ctors []) = do
 
 fromMatchForType (NewtypeD cxt name tyBindings  ctor nameList) = 
   fromMatchForType $ DataD cxt name tyBindings [ctor] nameList  
+
+fromMatchForType dec@(TySynD name _tyvars ty) = do
+    let matchPat = WildP
+    typeCtor <- sumTypeCtor name
+    funToApply <- unJsonType ty
+    let body = NormalB $ AppE (ConE typeCtor) (AppE (funToApply) json)
+    return $ Match matchPat body []
+    
   
 -- |Given a list of declarations, generate the fromJSON function for all
 -- types defined in the declaration list
@@ -336,6 +345,15 @@ toMatchForType dec@(DataD _ name _ ctors []) = do
 
 toMatchForType (NewtypeD cxt name tyBindings  ctor nameList) = 
   toMatchForType $ DataD cxt name tyBindings [ctor] nameList
+  
+--Type synonym, just get the unJson function, no cases to handle  
+toMatchForType (TySynD name _tyVars ty) = do
+    varName <- liftNewName "adt"
+    matchPat <- unJsonPat name varName
+    funToApply <- pureJsonType ty
+    let body = NormalB $ AppE (funToApply) (VarE varName)
+    return $ Match matchPat body [] 
+  
 -- | Generate the declaration of a value converted to Json
 -- given the name of an ADT value to convert
 makeSubJson :: (Type, Name, Name) -> SQ Dec
@@ -404,3 +422,4 @@ giantSumType allDecs = do
       getTypeName :: Dec -> Name
       getTypeName (DataD _ name _ _ _ ) = name
       getTypeName (NewtypeD _ name _tyBindings  _ctor _nameList) = name
+      getTypeName (TySynD name _ _) = name
