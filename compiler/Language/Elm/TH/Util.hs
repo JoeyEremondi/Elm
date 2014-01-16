@@ -151,6 +151,12 @@ isTupleType (AppT (TupleT _arity) _) = True
 isTupleType (AppT t1 t2) = isTupleType t1
 isTupleType _ = False
 
+isMaybeType (AppT (ConT name) _) = (nameToString name) == "Maybe"
+isMaybeType _ = False
+
+isMapType (AppT (AppT (ConT name) _) _) = (nameToString name) == "Map.Map" --TODO deeper comparison
+isMapType _ = False
+
 -- | Helper function to linearize the AppT of tuple types
 tupleTypeToList (AppT (TupleT _arity) t) = [t]
 tupleTypeToList (AppT t1 t2) = tupleTypeToList t1 ++ [t2]
@@ -167,5 +173,15 @@ recordWithFields recMap fields =
     hasFields (_, fieldsInRecord) = not $ null (filter (`elem` fields) fieldsInRecord)
     ctors = filter hasFields recList
     
-    
+-- | Helper to get all subtypes of a type
+subTypes :: Type -> [Type]
+subTypes (ForallT _ _ t) = [t]    
+subTypes (VarT _) = []
+subTypes (ConT _) = []
+subTypes (TupleT _) = []
+subTypes ArrowT = []   
+subTypes ListT = []       
+subTypes (AppT t1 t2) = [t1, t2]
+subTypes (SigT t _) = [t]
+subTypes _ = [] --TODO better catch-all?
                                       

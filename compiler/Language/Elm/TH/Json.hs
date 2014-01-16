@@ -79,11 +79,26 @@ jsonCase = map makeJsonCase1 list1 ++ map makeJsonCase0 list0 ++ [listCase]
     
 
 -- | Filter function to test if a dec is a data
+-- Also filters out decs which types that can't be serialized, such as functions
 isData :: Dec -> Bool
-isData DataD{} = True
-isData NewtypeD{} = True
-isData TySynD{} = True
-isData _ = False
+isData dec = (isData' dec) && (canSerial dec) 
+  where
+    isData' DataD{} = True
+    isData' NewtypeD{} = True
+    isData' TySynD{} = True
+    isData' _ = False
+    
+    canSerial (DataD _ _ _ ctors _) = all canSerialCtor ctors
+    canSerial (NewtypeD _ _ _ ctor _) = canSerialCtor ctor
+    canSerial (TySynD _ _ ty) = canSerialType ty
+    --can't serialize if type variables --TODO is this true?
+    canSerial _ = False
+    
+    canSerialCtor (NormalC _ types) = all (canSerialType) (map snd types)
+    canSerialCtor (RecC _ types) = all (canSerialType) (map (\(_,_,c)->c) types)
+    
+    canSerialType (ArrowT) = False
+    canSerialType t = all canSerialType (subTypes t)
 
 -- | Expression for the fromJson function
 fromJson :: Exp
@@ -166,6 +181,7 @@ unJsonType (AppT ListT t) = do
   let mapVar = VarE $ mkName "mapJson"
   return $ AppE mapVar subFun
 
+
   
 --Unpack JSON into a tuple type
 --We convert the JSON to a list
@@ -185,6 +201,19 @@ unJsonType t
       let makeList = VarE $ mkName "makeList"
       
       return $ InfixE (Just lambda) fnComp (Just makeList)
+  --For a maybe, we construct a function that returns Nothing if it reads null
+  -- or Just (unboxed fromJson val) if it is not null
+  
+  | isMaybeType t = do
+      let (AppT _ innerT) = t
+      argName <- liftNewName "maybeArg"
+      subFn <- unJsonType innerT
+      let nothingMatch = Match (ConP (mkName "Json.Null") []) (NormalB $ VarE $ mkName "Nothing") []
+      let otherMatch = Match (WildP) (NormalB $ AppE (VarE $ mkName "Just") (AppE subFn (VarE argName))) []
+      return $ LamE [VarP argName] (CaseE (VarE argName) [nothingMatch, otherMatch]) 
+  | isMapType t = do
+      let AppT (AppT _ keyT) valT = t
+      unJsonType (AppT (AppT (TupleT 2) keyT) valT)
   | otherwise = do
       test <- S.lift $ isIntType t
       case test of
@@ -237,7 +266,7 @@ fromMatchForCtor (RecC name vstList) = do
 -- | Given a type delcaration, generate the match which matches the "type" field of a JSON object
 -- and then defers to a case statement on constructors for that type
 fromMatchForType :: Dec -> SQ Match
-fromMatchForType dec@(DataD _ name _ ctors []) = do
+fromMatchForType dec@(DataD _ name _ ctors _deriving) = do
   let matchPat = LitP $ StringL $ nameToString name
   ctorMatches <- mapM fromMatchForCtor ctors
   let typeBody = NormalB $ CaseE getCtor ctorMatches
@@ -257,7 +286,8 @@ fromMatchForType dec@(TySynD name _tyvars ty) = do
     funToApply <- unJsonType ty
     let body = NormalB $ AppE (ConE typeCtor) (AppE (funToApply) json)
     return $ Match matchPat body []
-    
+
+fromMatchForType t = unImplemented $ "types other than Data, Type or Newtype " ++ show t    
   
 -- |Given a list of declarations, generate the fromJSON function for all
 -- types defined in the declaration list
@@ -336,7 +366,7 @@ makeDict typeName ctorName dictName jsonNames = do
  -- |Generate the Match which matches against the BoxedJson constructor
  -- to properly encode a given type
 toMatchForType :: Dec -> SQ Match
-toMatchForType dec@(DataD _ name _ ctors []) = do
+toMatchForType dec@(DataD _ name _ ctors _derive) = do
   varName <- liftNewName "adt"
   matchPat <- unJsonPat name varName
   ctorMatches <- mapM (toMatchForCtor name) ctors
@@ -401,7 +431,17 @@ pureJsonType t
       let argPat = TupP $ map VarP argNames
       --Get each tuple element as Json, then wrap them in a Json Array
       let listExp = AppE (VarE $ mkName "Json.Array") (ListE $ zipWith AppE subFunList argValues)
-      return $ LamE [argPat] listExp      
+      return $ LamE [argPat] listExp    
+   | isMaybeType t = do
+      let (AppT _ innerT) = t
+      argName <- liftNewName "maybeArg"
+      subFn <- pureJsonType innerT
+      let nothingMatch = Match (ConP (mkName "Nothing") []) (NormalB $ VarE $ mkName "Json.Null") []
+      let otherMatch = Match (WildP) (NormalB $ AppE subFn (VarE argName)) []
+      return $ LamE [VarP argName] (CaseE (VarE argName) [nothingMatch, otherMatch])
+   | isMapType t = do
+      let AppT (AppT _ keyT) valT = t
+      pureJsonType (AppT (AppT (TupleT 2) keyT) valT)
   --Don't need special int case, that happens when actually boxing the Json
 -----------------------------------------------------------------------
 

@@ -633,11 +633,17 @@ translateType t = do
           (AppT ListT t) -> do
             et <- translateType t
             return $ T.listOf et
+          --Type variable application: get type to apply to as Data
+          --then add this type to the list of applied types
+          (AppT subt tvar) -> do
+            etvar <- translateType tvar
+            T.Data ctor varList <- translateType subt
+            return $ T.Data ctor (varList ++ [etvar])                                           
           --This case is guaranteed to be an error, but we get a better message if we recurse
           (AppT t1 t2) -> do
             elm1 <- translateType t1
             elm2 <- translateType t2
-            return $ unImplemented "misc types"
+            return $ unImplemented $ "misc types "
 
             
 -- | Special record type translation
