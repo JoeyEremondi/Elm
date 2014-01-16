@@ -212,8 +212,9 @@ unJsonType t
       let otherMatch = Match (WildP) (NormalB $ AppE (VarE $ mkName "Just") (AppE subFn (VarE argName))) []
       return $ LamE [VarP argName] (CaseE (VarE argName) [nothingMatch, otherMatch]) 
   | isMapType t = do
-      let AppT (AppT _ keyT) valT = t
-      unJsonType (AppT (AppT (TupleT 2) keyT) valT)
+      let (AppT (AppT (ConT _name) keyT) valT) = t
+      tupleFun <- unJsonType (AppT ListT (AppT (AppT (TupleT 2) keyT) valT))
+      return $ InfixE (Just $ VarE $ mkName "Data.Map.fromList") fnComp (Just tupleFun) --TODO make variable
   | otherwise = do
       test <- S.lift $ isIntType t
       case test of
@@ -360,7 +361,7 @@ makeDict typeName ctorName dictName jsonNames = do
   let typeTuple = TupE [LitE $ StringL "type", AppE (VarE (mkName "Json.String")) typeExp ]
   let ctorTuple = TupE [LitE $ StringL "ctor", AppE (VarE (mkName "Json.String")) ctorExp ]
   let tupleList = ListE $ [typeTuple, ctorTuple] ++ tuples
-  let rightSide = NormalB $ AppE (VarE $ mkName "Dict.fromList") tupleList
+  let rightSide = NormalB $ AppE (VarE $ mkName "Data.Map.fromList") tupleList
   return $ ValD leftSide rightSide []
   
  -- |Generate the Match which matches against the BoxedJson constructor
@@ -435,13 +436,15 @@ pureJsonType t
    | isMaybeType t = do
       let (AppT _ innerT) = t
       argName <- liftNewName "maybeArg"
+      justArg<- liftNewName "justArg"
       subFn <- pureJsonType innerT
       let nothingMatch = Match (ConP (mkName "Nothing") []) (NormalB $ VarE $ mkName "Json.Null") []
-      let otherMatch = Match (WildP) (NormalB $ AppE subFn (VarE argName)) []
+      let otherMatch = Match (ConP (mkName "Just") [VarP justArg]) (NormalB $ AppE subFn (VarE justArg)) []
       return $ LamE [VarP argName] (CaseE (VarE argName) [nothingMatch, otherMatch])
    | isMapType t = do
-      let AppT (AppT _ keyT) valT = t
-      pureJsonType (AppT (AppT (TupleT 2) keyT) valT)
+      let (AppT (AppT (ConT _name) keyT) valT) = t
+      tupleFun <- pureJsonType (AppT ListT (AppT (AppT (TupleT 2) keyT) valT))
+      return $ InfixE (Just tupleFun) fnComp (Just $ VarE $ mkName "Data.Map.toList") --TODO make variable
   --Don't need special int case, that happens when actually boxing the Json
 -----------------------------------------------------------------------
 

@@ -130,6 +130,8 @@ baseCode =  "getType (Object d) = case (Dict.lookup \"__type\" d) of (Just (Json
                ++ "varNamed (Object d) n= case (Dict.lookup (show n) d) of (Just val) -> val\n"
                ++ "mapJson f (Array l) = map f l\n"
                ++ "makeList  (Array l) = l\n"
+               ++ "error s = case True of False -> s"
+               ++ "\n\n--End Haskelm prelude\n"
 
 moduleToString (Module [name] export imports elmDecs ) =
   let preamble = "module " ++ name ++ " where\nimport open Json\nimport Json\nimport Dict\n" ++ baseCode --TODO imports, exports

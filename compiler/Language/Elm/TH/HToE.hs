@@ -44,6 +44,9 @@ import Control.Monad.State (StateT)
 import qualified Control.Monad.State as S
 
 import qualified Data.Map as Map
+import Data.List (intercalate)
+
+import Debug.Trace (trace)
 
 {-|
 Haskell to Elm Translations
@@ -715,7 +718,7 @@ getElmName s
     | otherwise = s
     where 
           name = last partList
-          modul = concat $ init partList
+          modul = init partList
           partList = (splitOn "." s)
 
 --modules that are supported by Elm
@@ -724,18 +727,24 @@ elmHasFunction "Dict" s = s `elem` ["empty", "singleton", "insert", "update", "r
                             "union", "intersect", "diff", "keys", "values", "toList", "fromList", "map", "foldl", "foldr"]
 
 elmHasFunction "Json" s = s `elem` ["String", "Number", "Boolean", "Null", "Array", "Object"]                            
-                            
-elmHasFunction _ _ = False   
-    
-getElmModuleName :: String -> String -> String    
---TODO fix infix?    
-getElmModuleName "Data.Map" s = "Dict." ++ case s of --TODO are there any special cases?
-    _ -> if (elmHasFunction "Dict" s) 
-        then s
-        else error "Elm Dictionary doesn't support operation " ++ s
 
-getElmModuleName "Data.Aeson" s = "Json." ++ case s of
+elmHasFunction _ _ = False   
+
+directTranslate "Dict" s = 
+  case Map.lookup s m of
+       Just ret -> ret
+       Nothing -> error $ "Elm Dictionary operation not supported: " ++ s
+  where m = Map.fromList [("Map", "Dict")] --TODO more
+    
+getElmModuleName :: [String] -> String -> String    
+--TODO fix infix?    
+getElmModuleName ["Data", "Map"] name = "Dict." ++ case name of --TODO are there any special cases?
+    _ -> if (elmHasFunction "Dict" name)
+        then name
+        else directTranslate "Dict" name
+
+getElmModuleName ["Data", "Aeson"] s = "Json." ++ case s of
     _ -> if (elmHasFunction "Json" s) 
             then s
             else error "Elm Dictionary doesn't support operation " ++ s
-getElmModuleName m s = m ++ "." ++ s
+getElmModuleName m s = (intercalate "." m) ++ "." ++ s

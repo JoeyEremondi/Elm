@@ -154,7 +154,7 @@ isTupleType _ = False
 isMaybeType (AppT (ConT name) _) = (nameToString name) == "Maybe"
 isMaybeType _ = False
 
-isMapType (AppT (AppT (ConT name) _) _) = (nameToString name) == "Map.Map" --TODO deeper comparison
+isMapType (AppT (AppT (ConT name) _) _) = (nameToString name) `elem` ["Map", "Data.Map.Map", "Map.Map"] --TODO deeper comparison
 isMapType _ = False
 
 -- | Helper function to linearize the AppT of tuple types
