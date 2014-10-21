@@ -159,7 +159,7 @@ instance (Pretty exs, Pretty body) => Pretty (Module exs body) where
 
 
 prettyMethod :: (Name, ImportMethod) -> Doc
-prettyMethod import' =
+prettyMethod import'@(names, _) = P.text "import" <+> importName <+>
     case import' of
       ([name], As alias)
           | name == alias -> P.empty
