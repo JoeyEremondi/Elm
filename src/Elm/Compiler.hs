@@ -25,6 +25,7 @@ import qualified Reporting.Error as Error
 import qualified Reporting.PrettyPrint as P
 import qualified Reporting.Result as Result
 import qualified Reporting.Warning as Warning
+import qualified Elm.Utils as Utils
 
 
 -- VERSION
@@ -80,7 +81,9 @@ compile context source interfaces =
     (Result.Result (dealiaser, warnings) rawResult) =
       do  modul <- Compile.compile user packageName isRoot unwrappedInterfaces source
           docs <- docsGen isExposed modul
-          return (Result docs (Module.toInterface modul) (JS.generate modul))
+          let (generatedCode, genTime) = Utils.pureTime $ JS.generate modul
+          return $ Utils.withPrintTime "gen" (show genTime) $
+           (Result docs (Module.toInterface modul) generatedCode)
   in
     ( maybe dummyDealiaser Dealiaser dealiaser
     , map Warning warnings

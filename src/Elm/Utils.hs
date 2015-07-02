@@ -1,11 +1,17 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE BangPatterns #-}
 module Elm.Utils
     ( (|>), (<|)
     , getAsset
     , run, unwrappedRun
     , CommandError(..)
     , isDeclaration
+    , monadTime
+    , pureTime
+    , withPrintTime
+    , writeIOTime
+    , writeMIOTime
     ) where
 
 import Control.Monad.Except (MonadError, MonadIO, liftIO, throwError)
@@ -24,6 +30,10 @@ import qualified Parse.Helpers as Parse
 import qualified Parse.Expression as Parse
 import qualified Reporting.Annotation as A
 
+import System.IO.Unsafe
+import System.CPUTime
+
+import System.Random
 
 {-| Forward function application `x |> f == f x`. This function is useful
 for avoiding parenthesis and writing code in a more natural way.
@@ -143,3 +153,41 @@ isDeclaration string =
 
     _ ->
         Nothing
+
+picoToSeconds :: Integer -> Double
+picoToSeconds x = (fromInteger x) / (1000000000000.0)
+
+--Useful functions for benchmarking the compiler
+pureTime :: a -> (a, Double)
+pureTime x = unsafePerformIO $! do
+  !startTime <- getCPUTime
+  let !ret = x
+  !endTime <- getCPUTime
+  let diff = endTime - startTime
+  return $! (ret, picoToSeconds diff)
+
+monadTime :: (Monad m) => m a -> m (a, Double)
+monadTime mx = do
+  let (!mxResult, !time) = pureTime mx
+  !unwrappedMx <- mxResult
+  return $! (unwrappedMx, time)
+
+writeIOTime :: String -> IO a -> IO a
+writeIOTime = writeMIOTime
+
+writeMIOTime :: (MonadIO m) => String -> m a -> m a
+writeMIOTime name action = do
+  !startTime <- liftIO $ getCPUTime
+  !result <- action
+  !endTime <- liftIO $ getCPUTime
+  rand <- liftIO $ randomRIO (1::Int, 2^31::Int)
+  let timeString = show $ picoToSeconds $ endTime - startTime
+  liftIO $ writeFile ("timings/timing_" ++ name ++ "_" ++ show rand ++ ".out") (name ++ " " ++ timeString ++ "\n")
+  return result
+
+withPrintTime :: String -> String -> a -> a
+withPrintTime name s x = unsafePerformIO $! do
+  !currentTime <- getCPUTime
+  rand <- randomRIO (1::Int, 2^31::Int)
+  writeFile ("timings/timing_" ++ name ++ "_" ++ show rand ++ ".out") (name ++ " " ++ s ++ "\n")
+  return $! x
