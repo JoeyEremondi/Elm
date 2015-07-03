@@ -11,20 +11,19 @@ import qualified Reporting.Annotation as A
 import qualified Reporting.PrettyPrint as P
 import qualified Reporting.Region as R
 
-
 {-| Canonicalized expressions. All variables are fully resolved to the module
 they came from.
 -}
 type Expr =
-  General.Expr R.Region Def Var.Canonical Type.Canonical
+  General.Expr A.CanonicalAnn Def Var.Canonical Type.Canonical
 
 
 type Expr' =
-  General.Expr' R.Region Def Var.Canonical Type.Canonical
+  General.Expr' A.CanonicalAnn Def Var.Canonical Type.Canonical
 
 
 data Def
-    = Definition Pattern.CanonicalPattern Expr (Maybe (A.Located Type.Canonical))
+    = Definition Pattern.CanonicalPattern Expr (Maybe (A.CanonicalLocated Type.Canonical))
     deriving (Show)
 
 

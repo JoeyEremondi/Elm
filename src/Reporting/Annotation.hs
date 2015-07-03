@@ -19,6 +19,15 @@ type Located a =
 type Commented a =
     Annotated (R.Region, Maybe String) a
 
+type CanonicalLocated a = Annotated CanonicalAnn a
+
+type CanonicalCommented a = Annotated (CanonicalAnn, Maybe String) a
+
+unCanon :: CanonicalLocated a -> Located a
+unCanon (A ann x) = A (region ann) x
+
+commentUnCanon :: CanonicalCommented a -> Commented a
+commentUnCanon (A (ann,comment) x) = A (region ann, comment) x
 
 -- CREATE
 
@@ -54,3 +63,12 @@ drop (A _ value) =
 instance (P.Pretty a) => P.Pretty (Annotated info a) where
   pretty dealiaser parens (A _ value) =
       P.pretty dealiaser parens value
+
+data CanonicalAnn =
+  CanonicalAnn {
+    region :: R.Region,
+    isTailCall :: Bool,
+    hasTailCall :: Bool
+  } deriving (Show)
+
+defaultCanonAnn region = CanonicalAnn region False False

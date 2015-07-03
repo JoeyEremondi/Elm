@@ -60,7 +60,7 @@ literal lit =
 
 
 expression :: Canonical.Expr -> State Int (Expression ())
-expression (A.A region expr) =
+expression (A.A ann expr) =
     case expr of
       Var var ->
           return $ Var.canonical var
@@ -116,7 +116,7 @@ expression (A.A region expr) =
                 map (first prop) (Map.toList (Map.map head fs))
 
       Binop op e1 e2 ->
-          binop region op e1 e2
+          binop ann op e1 e2
 
       Lambda pattern rawBody@(A.A ann _) ->
           do  (args, body) <- foldM depattern ([], innerBody) (reverse patterns)
@@ -177,7 +177,7 @@ expression (A.A region expr) =
                   (A.A _ (Literal (Boolean True)), _) ->
                       safeIfs branches'
                   _ ->
-                      ifs branches' (throw "badIf" region)
+                      ifs branches' (throw "badIf" (A.region ann))
           where
             safeIfs branches = ifs (init branches) (snd (last branches))
             ifs branches finally = foldr iff finally branches
@@ -192,7 +192,7 @@ expression (A.A region expr) =
                     _ ->
                         do  e' <- expression e
                             return (initialMatch, [VarDeclStmt () [varDecl tempVar e']])
-              match' <- match region revisedMatch
+              match' <- match (A.region ann) revisedMatch
               return (function [] (stmt ++ match') `call` [])
 
       ExplicitList es ->
@@ -225,10 +225,10 @@ expression (A.A region expr) =
 
 
 definition :: Canonical.Def -> State Int [Statement ()]
-definition (Canonical.Definition annPattern expr@(A.A region _) _) =
+definition (Canonical.Definition annPattern expr@(A.A ann _) _) =
   do  expr' <- expression expr
       let assign x = varDecl x expr'
-      let (A.A patternRegion pattern) = annPattern
+      let (A.A patternAnnot pattern) = annPattern
       case pattern of
         P.Var x
             | Help.isOp x ->
@@ -262,17 +262,20 @@ definition (Canonical.Definition annPattern expr@(A.A region _) _) =
 
             safeAssign = varDecl "$" (CondExpr () if' (ref "_raw") exception)
             if' = InfixExpr () OpStrictEq (obj ["_raw","ctor"]) (string name)
-            exception = Help.throw "badCase" region
+            exception = Help.throw "badCase" (A.region ann)
 
         _ ->
             do  defs' <- concat <$> mapM toDef vars
                 return (VarDeclStmt () [assign "_"] : defs')
             where
               vars = P.boundVarList annPattern
-              mkVar = A.A region . localVar
-              toDef y =
-                let expr = A.A region $ Case (mkVar "_") [(annPattern, mkVar y)]
-                    pat = A.A patternRegion (P.Var y)
+              mkVar = A.A ann . localVar
+              toDef :: String -> State Int [Statement ()]
+              toDef y =  
+                let
+                    expr :: Canonical.Expr
+                    expr = A.A ann $ Case (mkVar "_") [(annPattern, mkVar y)]
+                    pat = A.A patternAnnot (P.Var y)
                 in
                     definition (Canonical.Definition pat expr Nothing)
 
@@ -431,12 +434,12 @@ generate modul =
 
 
 binop
-    :: R.Region
+    :: A.CanonicalAnn
     -> Var.Canonical
     -> Canonical.Expr
     -> Canonical.Expr
     -> State Int (Expression ())
-binop region func@(Var.Canonical home op) e1 e2 =
+binop ann func@(Var.Canonical home op) e1 e2 =
     case (home, op) of
       (Var.Module ["Basics"], ">>") ->
         do  es <- mapM expression (collectLeftAssoc [e2] e1)
@@ -452,7 +455,7 @@ binop region func@(Var.Canonical home op) e1 e2 =
             return $ foldr (<|) e2' es
 
       (Var.BuiltIn, "::") ->
-        expression (A.A region (Data "::" [e1,e2]))
+        expression (A.A ann (Data "::" [e1,e2]))
 
       (Var.Module ["Basics"], _) ->
         do  e1' <- expression e1

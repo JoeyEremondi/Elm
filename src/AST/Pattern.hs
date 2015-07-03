@@ -11,7 +11,6 @@ import qualified Reporting.Annotation as A
 import qualified Reporting.PrettyPrint as P
 import qualified Reporting.Region as R
 
-
 type Pattern ann var =
     A.Annotated ann (Pattern' ann var)
 
@@ -35,7 +34,7 @@ type RawPattern' =
 
 
 type CanonicalPattern =
-    Pattern R.Region Var.Canonical
+    Pattern A.CanonicalAnn Var.Canonical
 
 
 list :: R.Position -> [RawPattern] -> RawPattern

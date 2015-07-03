@@ -21,20 +21,20 @@ constrain
     -> P.CanonicalPattern
     -> Type
     -> IO Fragment
-constrain env (A.A region pattern) tipe =
+constrain env (A.A ann pattern) tipe =
   let
     equal patternError leftType rightType =
-      CEqual (Error.Pattern patternError) region leftType rightType
+      CEqual (Error.Pattern patternError) (A.region ann) leftType rightType
 
     rvar v =
-      A.A region (varN v)
+      A.A (A.region ann) (varN v)
   in
   case pattern of
     P.Anything ->
         return emptyFragment
 
     P.Literal lit ->
-        do  c <- Literal.constrain env region lit tipe
+        do  c <- Literal.constrain env (A.region ann) lit tipe
             return $ emptyFragment { typeConstraint = c }
 
     P.Var name ->

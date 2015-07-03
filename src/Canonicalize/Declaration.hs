@@ -18,11 +18,11 @@ toExpr moduleName decls =
 
 
 toDefs :: Module.Name -> D.CanonicalDecl -> [Canonical.Def]
-toDefs moduleName (A.A (region,_) decl) =
+toDefs moduleName (A.A (ann,_) decl) =
   let typeVar = Var.fromModule moduleName
 
       loc expr =
-        A.A region expr
+        A.A ann expr
   in
   case decl of
     D.Definition def ->
@@ -36,10 +36,10 @@ toDefs moduleName (A.A (region,_) decl) =
                 tbody = T.App (T.Type (typeVar name)) (map T.Var tvars)
                 body = loc . E.Data ctor $ map (loc . E.localVar) vars
             in
-                [ definition ctor (buildFunction body vars) region (foldr T.Lambda tbody tipes) ]
+                [ definition ctor (buildFunction body vars) ann (foldr T.Lambda tbody tipes) ]
 
     D.TypeAlias name tvars tipe@(T.Record fields ext) ->
-        [ definition name (buildFunction record vars) region (foldr T.Lambda result args) ]
+        [ definition name (buildFunction record vars) ann (foldr T.Lambda result args) ]
       where
         result =
           T.Aliased (typeVar name) (zip tvars (map T.Var tvars)) (T.Holey tipe)
@@ -71,13 +71,13 @@ toDefs moduleName (A.A (region,_) decl) =
         in
         case impl of
           E.In name tipe ->
-              [ definition name body region (T.getPortType tipe) ]
+              [ definition name body ann (T.getPortType tipe) ]
 
           E.Out name _expr tipe ->
-              [ definition name body region (T.getPortType tipe) ]
+              [ definition name body ann (T.getPortType tipe) ]
 
           E.Task name _expr tipe ->
-              [ definition name body region (T.getPortType tipe) ]
+              [ definition name body ann (T.getPortType tipe) ]
 
     -- no constraints are needed for fixity declarations
     D.Fixity _ _ _ ->
@@ -97,6 +97,6 @@ buildFunction body@(A.A ann _) vars =
       (map (A.A ann . P.Var) vars)
 
 
-definition :: String -> Canonical.Expr -> R.Region -> T.Canonical -> Canonical.Def
+definition :: String -> Canonical.Expr -> A.CanonicalAnn -> T.Canonical -> Canonical.Def
 definition name expr@(A.A ann _) region tipe =
   Canonical.Definition (A.A ann (P.Var name)) expr (Just (A.A region tipe))

@@ -52,9 +52,9 @@ toRawDocs decls =
 
 
 addDeclToDocs :: D.CanonicalDecl -> Raw -> Raw
-addDeclToDocs (A.A (region,maybeComment) decl) docs =
+addDeclToDocs (A.A (ann,maybeComment) decl) docs =
   case decl of
-    D.Definition (Canonical.Definition (A.A subregion (P.Var name)) _ maybeType) ->
+    D.Definition (Canonical.Definition (A.A subAnn (P.Var name)) _ maybeType) ->
         let
           info =
             ( maybeComment
@@ -62,7 +62,7 @@ addDeclToDocs (A.A (region,maybeComment) decl) docs =
             )
 
           newValues =
-            Map.insert name (A.A subregion info) (rawValues docs)
+            Map.insert name (A.A (A.region subAnn) info) (rawValues docs)
         in
           docs { rawValues = newValues }
 
@@ -74,15 +74,15 @@ addDeclToDocs (A.A (region,maybeComment) decl) docs =
           ctors' =
             map (second (map Extract.toAliasedType)) ctors
 
-          union =
-            A.A region (Docs.Union maybeComment args ctors')
+          union = A.unCanon $ 
+            A.A ann (Docs.Union maybeComment args ctors')
         in
           docs { rawTypes = Map.insert name union (rawTypes docs) }
 
     D.TypeAlias name args tipe ->
         let
-          alias =
-            A.A region (Docs.Alias maybeComment args (Extract.toAliasedType tipe))
+          alias = A.unCanon $
+            A.A ann (Docs.Alias maybeComment args (Extract.toAliasedType tipe))
         in
           docs { rawAliases = Map.insert name alias (rawAliases docs) }
 
