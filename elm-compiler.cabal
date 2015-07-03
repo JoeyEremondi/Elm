@@ -55,6 +55,7 @@ Library
         AST.Literal,
         AST.Module,
         AST.Pattern,
+        AST.Traversals,
         AST.Type,
         AST.Variable,
         Canonicalize,

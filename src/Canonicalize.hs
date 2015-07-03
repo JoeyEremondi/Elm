@@ -33,6 +33,9 @@ import qualified Canonicalize.Setup as Setup
 import qualified Canonicalize.Sort as Sort
 import qualified Canonicalize.Type as Canonicalize
 import qualified Canonicalize.Variable as Canonicalize
+import qualified AST.Traversals as ASTT
+
+import qualified Control.Monad.State as State
 
 
 -- MODULES
@@ -453,3 +456,56 @@ pattern env (A.A region ptrn) =
           P.Data
             <$> Canonicalize.pvar region env name (length patterns)
             <*> T.traverse (pattern env) patterns
+
+
+markTailCalls :: Canonical.Expr -> Canonical.Expr
+markTailCalls = ASTT.mapExpr $ \(A.A ann e) ->
+  A.A ann $ case e of
+    E.Let defs body ->
+      E.Let (map
+             (\d@(Canonical.Definition lhs rhs tp) ->
+               case (lhs, rhs) of
+                 (A.A _ (P.Var fnName), A.A _ (E.Lambda arg body) ) ->
+                   case (tailCallsForFn fnName body) of
+                     Nothing -> d
+                     Just newBody ->
+                       Canonical.Definition lhs (A.A (ann {A.hasTailCall = True}) (E.Lambda arg newBody) ) tp 
+                     
+                 _ -> d)
+             defs) body
+    _ -> e
+
+--Return a properly annotation expression for tail-calls
+tailCallsForFn :: String -> Canonical.Expr -> Maybe (Canonical.Expr)
+tailCallsForFn fnName expr =
+  case (State.runState (tcState expr) False) of
+    (e, True) -> Just e
+    (_, False) -> Nothing
+  where
+    tcState :: Canonical.Expr -> State.State Bool Canonical.Expr 
+    tcState expr@(A.A ann e) = case e of
+      --(Binop sub1 sub2 sub3) -> _ --TODO can binops be tail calls?
+      (E.App sub1 sub2) | isFnName e -> do
+        State.put True
+        return $ A.A (ann {A.isTailCall = True }) e 
+      (E.MultiIf branches) -> do
+        newBranches <- State.forM branches
+                      (\(cond, val ) ->
+                        do
+                          newVal <- tcState val
+                          return (cond, newVal)
+                      )
+        return $ A.A ann $ E.MultiIf newBranches
+      (E.Let defs body) -> do
+        newBody <- tcState body
+        return $ A.A ann $ E.Let defs newBody
+      (E.Case cexp branches) -> do
+        newBranches <- State.forM branches
+                      (\ (p, val) -> do
+                          newVal <- tcState val
+                          return (p, newVal))
+        return $ A.A ann $ E.Case cexp newBranches
+      _ -> return expr
+    isFnName (E.App (A.A _ sub) _) = isFnName sub
+    isFnName (E.Var (Var.Canonical (Var.Local) nm)) = nm == fnName
+    isFnName _ = False
