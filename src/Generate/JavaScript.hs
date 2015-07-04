@@ -9,6 +9,8 @@ import qualified Data.Set as Set
 import Language.ECMAScript3.PrettyPrint
 import Language.ECMAScript3.Syntax
 
+
+import qualified Data.Maybe as Maybe
 import AST.Module
 import AST.Expression.General
 import qualified AST.Expression.Canonical as Canonical
@@ -208,19 +210,43 @@ expression (A.A ann expr) =
               return $ function [] (stmts ++ rsList) `call` []
 
       MultiIf branches ->
-          do  branches' <- forM branches $ \(b,e) -> (,) <$> expression b <*> expression e
-              return $
-                case last branches of
-                  (A.A _ (Var (Var.Canonical (Var.Module ["Basics"]) "otherwise")), _) ->
-                      safeIfs branches'
-                  (A.A _ (Literal (Boolean True)), _) ->
-                      safeIfs branches'
-                  _ ->
-                      ifs branches' (throw "badIf" (A.region ann))
+          do  
+              let tcValues = map (\(A.A ann _) -> A.isTailCallWithArgs ann) $ map snd branches
+              case Maybe.catMaybes tcValues of
+                [] -> do
+                     branches' <- forM branches $ \(b,e) -> (,) <$> expression b <*> expression e
+                     return $ case last branches of
+                       (A.A _ (Var (Var.Canonical (Var.Module ["Basics"]) "otherwise")), _) ->
+                           safeIfs branches'
+                       (A.A _ (Literal (Boolean True)), _) ->
+                           safeIfs branches'
+                       _ ->
+                           ifs branches' (throw "badIf" (A.region ann))
+                _ -> do
+                  branches' <-
+                    forM branches $
+                      \(b,e) -> (,) <$> expression b
+                               <*> ( (BlockStmt ()) <$> returnStatement e)
+                  let retStmt = case last branches of
+                       (A.A _ (Var (Var.Canonical (Var.Module ["Basics"]) "otherwise")), _) ->
+                           safeIfStmt branches'
+                       (A.A _ (Literal (Boolean True)), _) ->
+                           safeIfStmt branches'
+                       _ ->
+                           ifStmts branches' (ExprStmt () $ throw "badIf" (A.region ann))
+                  return $ function [] [retStmt] `call` []
+                                   
+                            
           where
             safeIfs branches = ifs (init branches) (snd (last branches))
             ifs branches finally = foldr iff finally branches
             iff (if', then') else' = CondExpr () if' then' else'
+            safeIfStmt :: [(Expression (), Statement ())] -> Statement ()
+            safeIfStmt branches = ifStmts (init branches) (snd (last branches))
+            ifStmts :: [(Expression (), Statement ())] -> Statement () -> Statement ()
+            ifStmts branches finally = foldr iffStmt finally branches
+            iffStmt :: (Expression (), Statement ()) -> Statement () -> Statement ()
+            iffStmt (if', then') else' = IfStmt () if' then' else'
 
       Case e cases ->
           do  (tempVar,initialMatch) <- Case.toMatch cases
