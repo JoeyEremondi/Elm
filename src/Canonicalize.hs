@@ -472,7 +472,7 @@ markTailCalls =  ASTT.mapExpr $ \(A.A ann e) ->
                    case (tailCallsForFn fnName (argNames $ (E.Lambda arg body)) body) of
                      Nothing -> d
                      Just newBody -> trace ("Marking FN as having tail call " ++ fnName) $
-                       Canonical.Definition lhs (A.A (ann {A.hasTailCall = True}) (E.Lambda arg newBody) ) tp 
+                       Canonical.Definition lhs (A.A (ann {A.hasTailCall = Just fnName}) (E.Lambda arg newBody) ) tp 
                      
                  _ -> d)
              defs) body
@@ -494,7 +494,7 @@ tailCallsForFn fnName argNames expr = trace "TC for fn" $
       --(Binop sub1 sub2 sub3) -> _ --TODO can binops be tail calls?
       (E.App sub1 sub2) | isFnName e -> do
         State.put True
-        trace ("Found tail call in " ++ show fnName) $ return $ A.A (ann {A.isTailCallWithArgs = Just argNames }) e 
+        trace ("Found tail call in " ++ show fnName) $ return $ A.A (ann {A.isTailCallWithArgs = Just (fnName, argNames) }) e 
       (E.MultiIf branches) -> do
         newBranches <- State.forM branches
                       (\(cond, val ) ->
@@ -505,7 +505,7 @@ tailCallsForFn fnName argNames expr = trace "TC for fn" $
         return $ A.A ann $ E.MultiIf newBranches
       (E.Lambda arg body) -> do
         newBody <- tcState body
-        return $ A.A (ann {A.hasTailCall = True} ) $ E.Lambda arg newBody  
+        return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.Lambda arg newBody  
       (E.Let defs body) -> do
         newBody <- tcState body
         return $ A.A ann $ E.Let defs newBody

@@ -65,12 +65,12 @@ literal lit =
 returnStatement :: Canonical.Expr -> State Int [Statement ()]
 returnStatement expr@(A.A ann e) =
   case (A.isTailCallWithArgs ann, e) of
-    (Just argNames, App e1 e2) -> do
-            let (func, args) = getArgs e1 [e2]
+    (Just (fnName, argNames), App e1 e2) -> do
+            let (_, args) = getArgs e1 [e2]
             args' <- mapM expression args
             let assignPairs = zip argNames args'
                 makeAssign (arg, val) = AssignExpr () OpAssign (LVar () arg) val
-            return $ (map ( (ExprStmt ()) . makeAssign) assignPairs) ++ [ContinueStmt () Nothing] --TODO: what about recursive defs, or pattern vars?
+            return $ (map ( (ExprStmt ()) . makeAssign) assignPairs) ++ [BreakStmt () (Just $ Id () fnName)] --TODO: what about recursive defs, or pattern vars?
     _ -> do
       jsExp <- expression expr
       return $ [ret jsExp]
@@ -142,10 +142,9 @@ expression (A.A ann expr) =
       Lambda pattern rawBody@(A.A ann _) -> 
           do  (args, body) <- foldM depattern ([], innerBody) (reverse patterns)
               body' <- expression body
-              let baseFn =
-                    if (A.hasTailCall ann)
-                    then trace "LAMBDA TCO" $ (tcoFnBody args body') 
-                    else (args ==> body')
+              let baseFn = case(A.hasTailCall ann) of
+                    Just fnName -> trace "LAMBDA TCO" $ (tcoFnBody fnName args body') 
+                    _ -> (args ==> body')
               return $
                 case (length args < 2, length args > 9) of
                   (True, _) -> baseFn
@@ -153,8 +152,16 @@ expression (A.A ann expr) =
                   (False, False) ->
                     ref ("F" ++ show (length args)) <| baseFn
           where
-            tcoBodyLoop body = WhileStmt () (BoolLit () True) (ExprStmt () body )
-            tcoFnBody args body = FuncExpr () Nothing (map var args) [ tcoBodyLoop body ] 
+            bodyStmt body name = case body of
+              CallExpr () (FuncExpr () _ [] stmts) [] -> LabelledStmt () (Id () name) $
+                   BlockStmt () stmts
+              b -> trace ("Body expr " ++ show b ) $ LabelledStmt () (Id () name) $
+                   BlockStmt () [ExprStmt () body]
+            tcoBodyLoop name body = 
+              WhileStmt () (BoolLit () True) $ BlockStmt () [
+                bodyStmt body name
+                ]
+            tcoFnBody name args body = FuncExpr () Nothing (map var args) [ tcoBodyLoop name body ] 
             depattern (args, body) pattern =
                 case pattern of
                   A.A _ (P.Var x) ->
