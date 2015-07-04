@@ -29,7 +29,9 @@ import qualified Reporting.Region as R
 
 import Debug.Trace (trace)
 
-
+exprStmt e = case e of
+  CallExpr () (FuncExpr () _ [] stmts) [] -> BlockStmt () stmts
+  _ -> ExprStmt () e
     
 internalImports :: Module.Name -> [VarDecl ()]
 internalImports name =
@@ -70,9 +72,17 @@ returnStatement expr@(A.A ann e) =
     (Just (fnName, argNames), App e1 e2) -> do
             let (_, args) = getArgs e1 [e2]
             args' <- mapM expression args
-            let assignPairs = zip argNames args'
-                makeAssign (arg, val) = AssignExpr () OpAssign (LVar () arg) val
-            return $ (map ( (ExprStmt ()) . makeAssign) assignPairs) ++ [BreakStmt () (Just $ Id () fnName)] --TODO: what about recursive defs, or pattern vars?
+            let tempIds = map (\i -> "_Temp" ++ (show i) ) [0 .. length args']
+            let firstAssignPairs = zip tempIds args'
+            let secondAssignPairs = zip argNames (map ref tempIds)
+                makeAssign (arg, val) = exprStmt $  AssignExpr () OpAssign (LVar () arg) val
+                makeInit :: (String, Expression ()) -> Statement ()
+                makeInit (arg, val) = VarDeclStmt () [VarDecl () (Id () arg) (Just $ val)]
+                
+            return
+              $ (map makeInit firstAssignPairs)
+                ++ (map makeAssign secondAssignPairs)
+                ++ [BreakStmt () (Just $ Id () fnName)] --TODO: what about pattern vars?
     _ -> do
       jsExp <- expression expr
       return $ [ret jsExp]
@@ -158,7 +168,7 @@ expression (A.A ann expr) =
               CallExpr () (FuncExpr () _ [] stmts) [] -> LabelledStmt () (Id () name) $
                    BlockStmt () stmts
               b -> trace ("Body expr " ++ show b ) $ LabelledStmt () (Id () name) $
-                   BlockStmt () [ExprStmt () body]
+                   BlockStmt () [exprStmt body]
             tcoBodyLoop name body = 
               WhileStmt () (BoolLit () True) $ BlockStmt () [
                 bodyStmt body name
@@ -233,7 +243,7 @@ expression (A.A ann expr) =
                        (A.A _ (Literal (Boolean True)), _) ->
                            safeIfStmt branches'
                        _ ->
-                           ifStmts branches' (ExprStmt () $ throw "badIf" (A.region ann))
+                           ifStmts branches' (exprStmt $ throw "badIf" (A.region ann))
                   return $ function [] [retStmt] `call` []
                                    
                             
@@ -298,7 +308,7 @@ definition (Canonical.Definition annPattern expr@(A.A ann _) _) =
         P.Var x
             | Help.isOp x ->
                 let op = LBracket () (ref "_op") (string x) in
-                return [ ExprStmt () $ AssignExpr () OpAssign op expr' ]
+                return [ exprStmt $ AssignExpr () OpAssign op expr' ]
 
             | otherwise ->
                 return [ VarDeclStmt () [ assign (Var.varName x) ] ]
@@ -367,7 +377,7 @@ match region mtch =
               | otherwise = e
 
     Case.Fail ->
-        return [ ExprStmt () (Help.throw "badCase" region) ]
+        return [ exprStmt (Help.throw "badCase" region) ]
 
     Case.Break ->
         return [BreakStmt () Nothing]
@@ -427,7 +437,7 @@ generate modul =
     programStmts :: [Statement ()]
     programStmts =
         concat
-        [ [ ExprStmt () (string "use strict") ]
+        [ [ exprStmt (string "use strict") ]
         , setup localRuntime (names ++ ["values"])
         , [ IfSingleStmt () thisModule (ret thisModule) ]
         , [ VarDeclStmt () localVars ]
@@ -495,7 +505,7 @@ generate modul =
       case path of
         [x] -> VarDeclStmt () [ varDecl x expr ]
         _ ->
-          ExprStmt () $
+          exprStmt $
           AssignExpr () OpAssign (LDot () (obj (init path)) (last path)) expr
 
 
