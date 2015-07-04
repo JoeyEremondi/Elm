@@ -70,7 +70,7 @@ returnStatement expr@(A.A ann e) =
             args' <- mapM expression args
             let assignPairs = zip argNames args'
                 makeAssign (arg, val) = AssignExpr () OpAssign (LVar () arg) val
-            return $ (map ( (ExprStmt ()) . makeAssign) assignPairs) ++ [BreakStmt () Nothing] --TODO: what about recursive defs, or pattern vars?
+            return $ (map ( (ExprStmt ()) . makeAssign) assignPairs) ++ [ContinueStmt () Nothing] --TODO: what about recursive defs, or pattern vars?
     _ -> do
       jsExp <- expression expr
       return $ [ret jsExp]
