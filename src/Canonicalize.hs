@@ -37,6 +37,8 @@ import qualified AST.Traversals as ASTT
 
 import qualified Control.Monad.State as State
 
+import Debug.Trace (trace)
+
 
 -- MODULES
 
@@ -92,14 +94,14 @@ moduleHelp interfaces modul@(Module.Module _ _ comment exports _ decls) =
           `Result.andThen` \env -> (,) env <$> T.traverse (declaration env) decls
 
     body :: [D.CanonicalDecl] -> Module.CanonicalBody
-    body decls =
+    body decls = 
         let nakedDecls = map A.drop decls
         in
         Module.CanonicalBody
           { program =
               let expr = Decls.toExpr (Module.names modul) decls
               in
-                  Sort.definitions (dummyLet expr)
+                  markTailCalls $ Sort.definitions (dummyLet expr)
 
           , types =
               Map.empty
@@ -277,6 +279,7 @@ declaration env (A.A (region,comment) decl) =
           D.Definition <$> (
               Canonical.Definition
                 <$> pattern env pat
+                --Identify all the tail calls for the expressions we generate
                 <*> expression env expr
                 <*> T.traverse (regionType env) typ
           )
@@ -459,35 +462,39 @@ pattern env (A.A region ptrn) =
 
 
 markTailCalls :: Canonical.Expr -> Canonical.Expr
-markTailCalls = ASTT.mapExpr $ \(A.A ann e) ->
+markTailCalls =  ASTT.mapExpr $ \(A.A ann e) ->
   A.A ann $ case e of
-    E.Let defs body ->
+    E.Let defs body -> trace "Make TC let" $ 
       E.Let (map
              (\d@(Canonical.Definition lhs rhs tp) ->
                case (lhs, rhs) of
                  (A.A _ (P.Var fnName), A.A _ (E.Lambda arg body) ) ->
-                   case (tailCallsForFn fnName body) of
+                   case (tailCallsForFn fnName (argNames $ (E.Lambda arg body)) body) of
                      Nothing -> d
-                     Just newBody ->
+                     Just newBody -> trace ("Marking FN as having tail call " ++ fnName) $
                        Canonical.Definition lhs (A.A (ann {A.hasTailCall = True}) (E.Lambda arg newBody) ) tp 
                      
                  _ -> d)
              defs) body
     _ -> e
+  where
+    argNames :: Canonical.Expr' -> [String]
+    argNames (E.Lambda (A.A _ (P.Var s)) (A.A _ body) ) = [s] ++ (argNames body) 
+    argNames _ = []
 
 --Return a properly annotation expression for tail-calls
-tailCallsForFn :: String -> Canonical.Expr -> Maybe (Canonical.Expr)
-tailCallsForFn fnName expr =
+tailCallsForFn :: String -> [String] -> Canonical.Expr -> Maybe (Canonical.Expr)
+tailCallsForFn fnName argNames expr = trace "TC for fn" $
   case (State.runState (tcState expr) False) of
-    (e, True) -> Just e
+    (e, True) -> trace "Returning Just from TC found" $ Just e
     (_, False) -> Nothing
   where
     tcState :: Canonical.Expr -> State.State Bool Canonical.Expr 
-    tcState expr@(A.A ann e) = case e of
+    tcState expr@(A.A ann e) =  case e of
       --(Binop sub1 sub2 sub3) -> _ --TODO can binops be tail calls?
       (E.App sub1 sub2) | isFnName e -> do
         State.put True
-        return $ A.A (ann {A.isTailCall = True }) e 
+        trace ("Found tail call in " ++ show fnName) $ return $ A.A (ann {A.isTailCallWithArgs = Just argNames }) e 
       (E.MultiIf branches) -> do
         newBranches <- State.forM branches
                       (\(cond, val ) ->
@@ -496,6 +503,9 @@ tailCallsForFn fnName expr =
                           return (cond, newVal)
                       )
         return $ A.A ann $ E.MultiIf newBranches
+      (E.Lambda arg body) -> do
+        newBody <- tcState body
+        return $ A.A (ann {A.hasTailCall = True} ) $ E.Lambda arg newBody  
       (E.Let defs body) -> do
         newBody <- tcState body
         return $ A.A ann $ E.Let defs newBody
@@ -507,5 +517,5 @@ tailCallsForFn fnName expr =
         return $ A.A ann $ E.Case cexp newBranches
       _ -> return expr
     isFnName (E.App (A.A _ sub) _) = isFnName sub
-    isFnName (E.Var (Var.Canonical (Var.Local) nm)) = nm == fnName
-    isFnName _ = False
+    isFnName (E.Var (Var.Canonical (Var.Local) nm)) = trace ("Comparing " ++ nm ++ " to " ++ fnName ) $ nm == fnName
+    isFnName x = trace ("Rejecting fn name " ++ show x ++ " for fn " ++ fnName) $ False

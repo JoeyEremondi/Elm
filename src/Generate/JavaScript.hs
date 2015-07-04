@@ -25,7 +25,10 @@ import qualified Generate.JavaScript.Variable as Var
 import qualified Reporting.Annotation as A
 import qualified Reporting.Region as R
 
+import Debug.Trace (trace)
 
+
+    
 internalImports :: Module.Name -> [VarDecl ()]
 internalImports name =
     [ varDecl "_N" (obj ["Elm","Native"])
@@ -58,6 +61,24 @@ literal lit =
     FloatNum n -> NumLit () n
     Boolean  b -> BoolLit () b
 
+--Used for distinguishing tail calls: they are translated into stateful statements
+returnStatement :: Canonical.Expr -> State Int [Statement ()]
+returnStatement expr@(A.A ann e) =
+  case (A.isTailCallWithArgs ann, e) of
+    (Just argNames, App e1 e2) -> do
+            let (func, args) = getArgs e1 [e2]
+            args' <- mapM expression args
+            let assignPairs = zip argNames args'
+                makeAssign (arg, val) = AssignExpr () OpAssign (LVar () arg) val
+            return $ (map ( (ExprStmt ()) . makeAssign) assignPairs) ++ [BreakStmt () Nothing] --TODO: what about recursive defs, or pattern vars?
+    _ -> do
+      jsExp <- expression expr
+      return $ [ret jsExp]
+  where
+    getArgs func args =
+                case func of
+                  (A.A _ (App f arg)) -> getArgs f (arg : args)
+                  _ -> (func, args)
 
 expression :: Canonical.Expr -> State Int (Expression ())
 expression (A.A ann expr) =
@@ -117,15 +138,23 @@ expression (A.A ann expr) =
 
       Binop op e1 e2 ->
           binop ann op e1 e2
-
-      Lambda pattern rawBody@(A.A ann _) ->
+            
+      Lambda pattern rawBody@(A.A ann _) -> 
           do  (args, body) <- foldM depattern ([], innerBody) (reverse patterns)
               body' <- expression body
+              let baseFn =
+                    if (A.hasTailCall ann)
+                    then trace "LAMBDA TCO" $ (tcoFnBody args body') 
+                    else (args ==> body')
               return $
-                case length args < 2 || length args > 9 of
-                  True  -> foldr (==>) body' (map (:[]) args)
-                  False -> ref ("F" ++ show (length args)) <| (args ==> body')
+                case (length args < 2, length args > 9) of
+                  (True, _) -> baseFn
+                  (_, True)  -> foldr (==>) body' (map (:[]) args)
+                  (False, False) ->
+                    ref ("F" ++ show (length args)) <| baseFn
           where
+            tcoBodyLoop body = WhileStmt () (BoolLit () True) (ExprStmt () body )
+            tcoFnBody args body = FuncExpr () Nothing (map var args) [ tcoBodyLoop body ] 
             depattern (args, body) pattern =
                 case pattern of
                   A.A _ (P.Var x) ->
@@ -146,9 +175,12 @@ expression (A.A ann expr) =
                   Lambda p e -> collect (p:patterns) e
                   _ -> (patterns, lexpr)
 
-      App e1 e2 ->
-          do  func' <- expression func
-              args' <- mapM expression args
+      App e1 e2 -> do
+        args' <- mapM expression args
+        case A.isTailCallWithArgs ann of
+          Just argNames -> error "Should have removed tail call earlier"
+          Nothing -> do
+              func' <- expression func
               return $
                 case args' of
                   [arg] -> func' <| arg
@@ -165,8 +197,8 @@ expression (A.A ann expr) =
       Let defs e ->
           do  let (defs',e') = flattenLets defs e
               stmts <- concat <$> mapM definition defs'
-              exp <- expression e'
-              return $ function [] (stmts ++ [ ret exp ]) `call` []
+              rsList <- returnStatement e'
+              return $ function [] (stmts ++ rsList) `call` []
 
       MultiIf branches ->
           do  branches' <- forM branches $ \(b,e) -> (,) <$> expression b <*> expression e
@@ -308,8 +340,8 @@ match region mtch =
         return [BreakStmt () Nothing]
 
     Case.Other e ->
-        do  e' <- expression e
-            return [ ret e' ]
+        do  rsList <- returnStatement e
+            return rsList
 
     Case.Seq ms ->
         concat <$> mapM (match region) (dropEnd [] ms)
@@ -355,6 +387,7 @@ generate modul =
     names :: [String]
     names = Module.names modul
 
+    --TODO can this ever be a tail-call?
     thisModule :: Expression ()
     thisModule = obj (localRuntime : names ++ ["values"])
 

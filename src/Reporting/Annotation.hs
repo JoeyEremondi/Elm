@@ -67,8 +67,8 @@ instance (P.Pretty a) => P.Pretty (Annotated info a) where
 data CanonicalAnn =
   CanonicalAnn {
     region :: R.Region,
-    isTailCall :: Bool,
+    isTailCallWithArgs :: Maybe [String],
     hasTailCall :: Bool
   } deriving (Show)
 
-defaultCanonAnn region = CanonicalAnn region False False
+defaultCanonAnn region = CanonicalAnn region Nothing False
