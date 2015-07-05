@@ -69,19 +69,24 @@ literal lit =
 returnStatement :: Canonical.Expr -> State Int [Statement ()]
 returnStatement expr@(A.A ann e) =
   case (A.isTailCallWithArgs ann, e) of
-    (Just (fnName, argNames), App e1 e2) -> do
+    (Just (fnName, argPats), App e1 e2) -> do
+            --TODO switch from argument names to argument patterns
             let (_, args) = getArgs e1 [e2]
             args' <- mapM expression args
             let tempIds = map (\i -> "_Temp" ++ (show i) ) [0 .. length args']
             let firstAssignPairs = zip tempIds args'
-            let secondAssignPairs = zip argNames (map ref tempIds)
-                makeAssign (arg, val) = exprStmt $  AssignExpr () OpAssign (LVar () arg) val
+            let secondAssignPairs = zip argPats (map ref tempIds)
+                makeAssign (patTform, val) =
+                  map (\ (argName, tformedVal) ->
+                        exprStmt $  AssignExpr () OpAssign (LVar () argName) tformedVal )
+                    (patTform val)
+                                                         --
                 makeInit :: (String, Expression ()) -> Statement ()
                 makeInit (arg, val) = VarDeclStmt () [VarDecl () (Id () arg) (Just $ val)]
                 
             return
               $ (map makeInit firstAssignPairs)
-                ++ (map makeAssign secondAssignPairs)
+                ++ (concatMap makeAssign secondAssignPairs)
                 ++ [BreakStmt () (Just $ Id () fnName)] --TODO: what about pattern vars?
     _ -> do
       jsExp <- expression expr
@@ -170,9 +175,9 @@ expression (A.A ann expr) =
               b -> trace ("Body expr " ++ show b ) $ LabelledStmt () (Id () name) $
                    BlockStmt () [exprStmt body]
             tcoBodyLoop name body = 
-              WhileStmt () (BoolLit () True) $ BlockStmt () [
+              --WhileStmt () (BoolLit () True) $ BlockStmt () [
                 bodyStmt body name
-                ]
+                --]
             tcoFnBody name args body = FuncExpr () Nothing (map var args) [ tcoBodyLoop name body ] 
             depattern (args, body) pattern =
                 case pattern of

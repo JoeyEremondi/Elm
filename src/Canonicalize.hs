@@ -37,6 +37,8 @@ import qualified AST.Traversals as ASTT
 
 import qualified Control.Monad.State as State
 
+import qualified Language.ECMAScript3.Syntax as JS
+
 import Debug.Trace (trace)
 
 
@@ -469,7 +471,7 @@ markTailCalls =  ASTT.mapExpr $ \(A.A ann e) ->
              (\d@(Canonical.Definition lhs rhs tp) ->
                case (lhs, rhs) of
                  (A.A _ (P.Var fnName), A.A _ (E.Lambda arg body) ) ->
-                   case (tailCallsForFn fnName (argNames $ (E.Lambda arg body)) body) of
+                   case (tailCallsForFn fnName (argPats $ (E.Lambda arg body)) body) of
                      Nothing -> d
                      Just newBody -> trace ("Marking FN as having tail call " ++ fnName) $
                        Canonical.Definition lhs (A.A (ann {A.hasTailCall = Just fnName}) (E.Lambda arg newBody) ) tp 
@@ -478,13 +480,13 @@ markTailCalls =  ASTT.mapExpr $ \(A.A ann e) ->
              defs) body
     _ -> e
   where
-    argNames :: Canonical.Expr' -> [String]
-    argNames (E.Lambda (A.A _ (P.Var s)) (A.A _ body) ) = [s] ++ (argNames body) 
-    argNames _ = []
+    argPats :: Canonical.Expr' -> [P.CanonicalPattern]
+    argPats (E.Lambda pat (A.A _ body) ) = [pat] ++ (argPats body) 
+    argPats _ = []
 
 --Return a properly annotation expression for tail-calls
-tailCallsForFn :: String -> [String] -> Canonical.Expr -> Maybe (Canonical.Expr)
-tailCallsForFn fnName argNames expr = trace "TC for fn" $
+tailCallsForFn :: String -> [P.CanonicalPattern] -> Canonical.Expr -> Maybe (Canonical.Expr)
+tailCallsForFn fnName argPats expr = trace "TC for fn" $
   case (State.runState (tcState expr) False) of
     (e, True) -> trace "Returning Just from TC found" $ Just e
     (_, False) -> Nothing
@@ -494,7 +496,8 @@ tailCallsForFn fnName argNames expr = trace "TC for fn" $
       --(Binop sub1 sub2 sub3) -> _ --TODO can binops be tail calls?
       (E.App sub1 sub2) | isFnName e -> do
         State.put True
-        trace ("Found tail call in " ++ show fnName) $ return $ A.A (ann {A.isTailCallWithArgs = Just (fnName, argNames) }) e 
+        return $ A.A (ann {A.isTailCallWithArgs =
+                              Just (fnName, argMakers argPats) }) e 
       (E.MultiIf branches) -> do
         newBranches <- State.forM branches
                       (\(cond, val ) ->
@@ -519,3 +522,20 @@ tailCallsForFn fnName argNames expr = trace "TC for fn" $
     isFnName (E.App (A.A _ sub) _) = isFnName sub
     isFnName (E.Var (Var.Canonical (Var.Local) nm)) = trace ("Comparing " ++ nm ++ " to " ++ fnName ) $ nm == fnName
     isFnName x = trace ("Rejecting fn name " ++ show x ++ " for fn " ++ fnName) $ False
+    argMakers pats = map (\pat rhs -> argMaker pat rhs) pats
+    --Given a pattern
+    --And a JS expression representing the value this pattern represents
+    --Return the list of variables and expressions needed to assign the proper value
+    --To each variable of the pattern
+    argMaker :: P.CanonicalPattern -> JS.Expression () -> [(String, JS.Expression ())]
+    argMaker (A.A ann pat) rhs =
+      case pat of
+        (P.Data ctor subPats) ->
+          let
+            subRHSes = map (\i -> JS.DotRef () rhs (JS.Id () $ "_" ++ show i) ) [1.. length subPats]
+          in concat $ zipWith argMaker subPats subRHSes
+        (P.Record fields) -> map (\field -> (field, JS.DotRef () rhs (JS.Id () field))) fields
+        (P.Alias p1 p2) -> [(p1, rhs)]
+        (P.Var p) -> [(p, rhs)]
+        P.Anything -> [] --Don't have to assign if we don't examine its value
+        (P.Literal p) -> [] --Don't have to assign if its value is fixed

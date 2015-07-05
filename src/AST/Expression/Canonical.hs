@@ -11,6 +11,7 @@ import qualified Reporting.Annotation as A
 import qualified Reporting.PrettyPrint as P
 import qualified Reporting.Region as R
 
+
 {-| Canonicalized expressions. All variables are fully resolved to the module
 they came from.
 -}
@@ -45,3 +46,6 @@ instance P.Pretty Def where
                 P.pretty dealiaser True pattern
                 <+> P.colon
                 <+> P.pretty dealiaser False tipe
+
+
+

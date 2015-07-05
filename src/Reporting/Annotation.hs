@@ -4,6 +4,7 @@ import Prelude hiding (map)
 import qualified Reporting.PrettyPrint as P
 import qualified Reporting.Region as R
 
+import qualified Language.ECMAScript3.Syntax as JS
 
 -- ANNOTATION
 
@@ -19,15 +20,6 @@ type Located a =
 type Commented a =
     Annotated (R.Region, Maybe String) a
 
-type CanonicalLocated a = Annotated CanonicalAnn a
-
-type CanonicalCommented a = Annotated (CanonicalAnn, Maybe String) a
-
-unCanon :: CanonicalLocated a -> Located a
-unCanon (A ann x) = A (region ann) x
-
-commentUnCanon :: CanonicalCommented a -> Commented a
-commentUnCanon (A (ann,comment) x) = A (region ann, comment) x
 
 -- CREATE
 
@@ -64,11 +56,26 @@ instance (P.Pretty a) => P.Pretty (Annotated info a) where
   pretty dealiaser parens (A _ value) =
       P.pretty dealiaser parens value
 
+
+
 data CanonicalAnn =
   CanonicalAnn {
     region :: R.Region,
-    isTailCallWithArgs :: Maybe (String, [String]),
+    isTailCallWithArgs :: Maybe (String, [JS.Expression () -> [(String, JS.Expression ())]]),
     hasTailCall :: Maybe String
-  } deriving (Show)
+  }
+
+instance Show CanonicalAnn where
+  show ann = "TODO re-implement show" 
 
 defaultCanonAnn region = CanonicalAnn region Nothing Nothing
+
+type CanonicalLocated  a = Annotated (CanonicalAnn) a
+
+type CanonicalCommented a = Annotated (CanonicalAnn, Maybe String) a
+
+unCanon :: CanonicalLocated a -> Located a
+unCanon (A ann x) = A (region ann) x
+
+commentUnCanon :: CanonicalCommented a -> Commented a
+commentUnCanon (A (ann,comment) x) = A (region ann, comment) x
