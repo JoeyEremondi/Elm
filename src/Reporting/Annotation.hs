@@ -6,8 +6,6 @@ import qualified Reporting.Region as R
 import qualified Data.List as List
 
 import qualified Language.ECMAScript3.Syntax as JS
-import Debug.Trace (trace)
-
 -- ANNOTATION
 
 data Annotated annotation a
@@ -74,12 +72,11 @@ showTCInfo (Just (fnName, tformers)) =
     appliedFns = ""--List.map (\f -> f $ JS.VarRef () $ JS.Id () "/*PATTERN_EXPR*/"  ) tformers
   in show (fnName, appliedFns)
         
-
 instance Show CanonicalAnn where
-  show (CanonicalAnn reg isTC hasTC ) = trace "SHOWING ANN" $ "{ "
+  show (CanonicalAnn reg isTC hasTC ) = "{ "
+             ++ "region: " ++ show reg
              ++ (", isTC: " ++ (showTCInfo isTC))
-             ++ (", hasTC: " ++ show hasTC ++ "}")
-             
+             ++ (", hasTC: " ++ show hasTC ++ "}")             
 
 defaultCanonAnn :: R.Region -> CanonicalAnn
 defaultCanonAnn reg =

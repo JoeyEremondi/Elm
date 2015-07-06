@@ -39,8 +39,6 @@ import qualified Control.Monad.State as State
 
 import qualified Language.ECMAScript3.Syntax as JS
 
-import Debug.Trace (trace)
-
 
 -- MODULES
 
@@ -467,19 +465,14 @@ pattern env (A.A region ptrn) =
 markTailCalls :: Canonical.Expr -> Canonical.Expr
 markTailCalls =  ASTT.mapExpr $ \(A.A ann e) ->
   A.A ann $ case e of
-    E.Let defs letBody -> trace ("Make TC let with ann " ) $ 
+    E.Let defs letBody -> 
       E.Let (map
              (\d@(Canonical.Definition lhs rhs tp) ->
                case (lhs, rhs) of
                  (A.A _ (P.Var fnName), fnExp@(A.A _ (E.Lambda _ _)) ) ->
                    case (tailCallsForFn fnName (argPats $ fnExp ) fnExp) of
-                     Nothing -> trace ("No TC found for " ++ fnName) $ d
-                     Just newFn ->
-                       let
-                         newExpr = Canonical.Definition lhs newFn tp
-                       in trace ("Marking FN as having tail call " ++ fnName ++
-                               "\n\n**********" ++ show newExpr ++ "\n********\n\n") newExpr
-                     
+                     Nothing -> d
+                     Just newFn ->  Canonical.Definition lhs newFn tp
                  _ -> d)
              defs) letBody
     _ -> e
@@ -490,15 +483,15 @@ markTailCalls =  ASTT.mapExpr $ \(A.A ann e) ->
 
 --Return a properly annotation expression for tail-calls
 tailCallsForFn :: String -> [P.CanonicalPattern] -> Canonical.Expr -> Maybe (Canonical.Expr)
-tailCallsForFn fnName argPats expr = trace ("TC for fn " ++ show fnName) $
+tailCallsForFn fnName argPats expr =
   case (State.runState (tcState expr) False) of
-    (e, True) -> trace "Returning Just from TC found" $ Just e
+    (e, True) -> Just e
     (_, False) -> Nothing
   where
     tcState :: Canonical.Expr -> State.State Bool Canonical.Expr 
     tcState expr@(A.A ann e) =  case e of
       --(Binop sub1 sub2 sub3) -> _ --TODO can binops be tail calls?
-      (E.App sub1 sub2) | isFnName e -> trace "TC App" $ do
+      (E.App sub1 sub2) | isFnName e -> do
         State.put True
         return $ A.A (ann {A.isTailCallWithArgs =
                               Just (fnName, argMakers argPats) }) e 
@@ -524,8 +517,8 @@ tailCallsForFn fnName argPats expr = trace ("TC for fn " ++ show fnName) $
         return $ A.A ann $ E.Case cexp newBranches
       _ -> return expr
     isFnName (E.App (A.A _ sub) _) = isFnName sub
-    isFnName (E.Var (Var.Canonical (Var.Local) nm)) = trace ("Comparing " ++ nm ++ " to " ++ fnName ) $ nm == fnName
-    isFnName x = trace ("Rejecting fn name " ++ show x ++ " for fn " ++ fnName) $ False
+    isFnName (E.Var (Var.Canonical (Var.Local) nm)) = nm == fnName
+    isFnName x = False
     argMakers pats = map (\pat rhs -> argMaker pat rhs) pats
     --Given a pattern
     --And a JS expression representing the value this pattern represents

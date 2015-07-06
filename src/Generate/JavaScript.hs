@@ -27,7 +27,6 @@ import qualified Generate.JavaScript.Variable as Var
 import qualified Reporting.Annotation as A
 import qualified Reporting.Region as R
 
-import Debug.Trace (trace)
 
 exprStmt e = case e of
   CallExpr () (FuncExpr () _ [] stmts) [] -> BlockStmt () stmts
@@ -177,7 +176,7 @@ expression (A.A ann expr) =
             bodyStmt body name = case body of
               CallExpr () (FuncExpr () _ [] stmts) [] -> LabelledStmt () (Id () name) $
                    BlockStmt () stmts 
-              b -> trace ("Body expr " ++ show b ) $ LabelledStmt () (Id () name) $
+              _ -> LabelledStmt () (Id () name) $
                    BlockStmt () [exprStmt body]
             tcoBodyLoop name body = 
               WhileStmt () (BoolLit () True) $ BlockStmt () [
