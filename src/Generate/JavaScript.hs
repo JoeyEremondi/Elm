@@ -11,7 +11,7 @@ import Language.ECMAScript3.Syntax
 
 
 import qualified Data.Maybe as Maybe
-import AST.Module
+import AST.Module hiding (body)
 import AST.Expression.General
 import qualified AST.Expression.Canonical as Canonical
 import qualified AST.Helpers as Help
@@ -68,14 +68,16 @@ literal lit =
 --Used for distinguishing tail calls: they are translated into stateful statements
 returnStatement :: Canonical.Expr -> State Int [Statement ()]
 returnStatement expr@(A.A ann e) =
+  --Special case: if we return from a tail call, we don't actually return
+  --We instead set paramters then break
   case (A.isTailCallWithArgs ann, e) of
-    (Just (fnName, argPats), App e1 e2) -> do
+    (Just (fnName, argTforms), App e1 e2) -> do
             --TODO switch from argument names to argument patterns
             let (_, args) = getArgs e1 [e2]
             args' <- mapM expression args
             let tempIds = map (\i -> "_Temp" ++ (show i) ) [0 .. length args']
             let firstAssignPairs = zip tempIds args'
-            let secondAssignPairs = zip argPats (map ref tempIds)
+            let secondAssignPairs = zip argTforms (map ref tempIds)
                 makeAssign (patTform, val) =
                   map (\ (argName, tformedVal) ->
                         exprStmt $  AssignExpr () OpAssign (LVar () argName) tformedVal )
@@ -88,6 +90,7 @@ returnStatement expr@(A.A ann e) =
               $ (map makeInit firstAssignPairs)
                 ++ (concatMap makeAssign secondAssignPairs)
                 ++ [BreakStmt () (Just $ Id () fnName)] --TODO: what about pattern vars?
+    --Normal case: just return the expression
     _ -> do
       jsExp <- expression expr
       return $ [ret jsExp]
@@ -156,28 +159,30 @@ expression (A.A ann expr) =
       Binop op e1 e2 ->
           binop ann op e1 e2
             
-      Lambda pattern rawBody@(A.A ann _) -> 
+      Lambda pattern rawBody -> 
           do  (args, body) <- foldM depattern ([], innerBody) (reverse patterns)
               body' <- expression body
               let baseFn = case(A.hasTailCall ann) of
-                    Just fnName -> trace "LAMBDA TCO" $ (tcoFnBody fnName args body') 
+                    Just fnName -> tcoFnBody fnName args body' 
                     _ -> (args ==> body')
               return $
                 case (length args < 2, length args > 9) of
                   (True, _) -> baseFn
+                  --We don't optimize for tail-calls if there's more than 9 arguments
+                  --TODO is this bad
                   (_, True)  -> foldr (==>) body' (map (:[]) args)
                   (False, False) ->
                     ref ("F" ++ show (length args)) <| baseFn
           where
             bodyStmt body name = case body of
               CallExpr () (FuncExpr () _ [] stmts) [] -> LabelledStmt () (Id () name) $
-                   BlockStmt () stmts
+                   BlockStmt () stmts 
               b -> trace ("Body expr " ++ show b ) $ LabelledStmt () (Id () name) $
                    BlockStmt () [exprStmt body]
             tcoBodyLoop name body = 
-              --WhileStmt () (BoolLit () True) $ BlockStmt () [
+              WhileStmt () (BoolLit () True) $ BlockStmt () [
                 bodyStmt body name
-                --]
+                ]
             tcoFnBody name args body = FuncExpr () Nothing (map var args) [ tcoBodyLoop name body ] 
             depattern (args, body) pattern =
                 case pattern of

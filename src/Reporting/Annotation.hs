@@ -3,8 +3,10 @@ module Reporting.Annotation where
 import Prelude hiding (map)
 import qualified Reporting.PrettyPrint as P
 import qualified Reporting.Region as R
+import qualified Data.List as List
 
 import qualified Language.ECMAScript3.Syntax as JS
+import Debug.Trace (trace)
 
 -- ANNOTATION
 
@@ -65,10 +67,26 @@ data CanonicalAnn =
     hasTailCall :: Maybe String
   }
 
-instance Show CanonicalAnn where
-  show ann = "TODO re-implement show" 
+showTCInfo :: Maybe (String, [JS.Expression () -> [(String, JS.Expression ())]]) -> String
+showTCInfo Nothing = "Nothing"
+showTCInfo (Just (fnName, tformers)) =
+  let
+    appliedFns = ""--List.map (\f -> f $ JS.VarRef () $ JS.Id () "/*PATTERN_EXPR*/"  ) tformers
+  in show (fnName, appliedFns)
+        
 
-defaultCanonAnn region = CanonicalAnn region Nothing Nothing
+instance Show CanonicalAnn where
+  show (CanonicalAnn reg isTC hasTC ) = trace "SHOWING ANN" $ "{ "
+             ++ (", isTC: " ++ (showTCInfo isTC))
+             ++ (", hasTC: " ++ show hasTC ++ "}")
+             
+
+defaultCanonAnn :: R.Region -> CanonicalAnn
+defaultCanonAnn reg =
+  CanonicalAnn
+  {region = reg,
+   isTailCallWithArgs = Nothing,
+   hasTailCall = Nothing }
 
 type CanonicalLocated  a = Annotated (CanonicalAnn) a
 

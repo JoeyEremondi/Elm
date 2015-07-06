@@ -102,8 +102,9 @@ moduleHelp interfaces modul@(Module.Module _ _ comment exports _ decls) =
         Module.CanonicalBody
           { program =
               let expr = Decls.toExpr (Module.names modul) decls
+                  newExpr = markTailCalls $ Sort.definitions (dummyLet expr)
               in
-                  markTailCalls $ Sort.definitions (dummyLet expr)
+                  newExpr
 
           , types =
               Map.empty
@@ -466,27 +467,30 @@ pattern env (A.A region ptrn) =
 markTailCalls :: Canonical.Expr -> Canonical.Expr
 markTailCalls =  ASTT.mapExpr $ \(A.A ann e) ->
   A.A ann $ case e of
-    E.Let defs body -> trace "Make TC let" $ 
+    E.Let defs letBody -> trace ("Make TC let with ann " ) $ 
       E.Let (map
              (\d@(Canonical.Definition lhs rhs tp) ->
                case (lhs, rhs) of
-                 (A.A _ (P.Var fnName), A.A _ (E.Lambda arg body) ) ->
-                   case (tailCallsForFn fnName (argPats $ (E.Lambda arg body)) body) of
-                     Nothing -> d
-                     Just newBody -> trace ("Marking FN as having tail call " ++ fnName) $
-                       Canonical.Definition lhs (A.A (ann {A.hasTailCall = Just fnName}) (E.Lambda arg newBody) ) tp 
+                 (A.A _ (P.Var fnName), fnExp@(A.A _ (E.Lambda _ _)) ) ->
+                   case (tailCallsForFn fnName (argPats $ fnExp ) fnExp) of
+                     Nothing -> trace ("No TC found for " ++ fnName) $ d
+                     Just newFn ->
+                       let
+                         newExpr = Canonical.Definition lhs newFn tp
+                       in trace ("Marking FN as having tail call " ++ fnName ++
+                               "\n\n**********" ++ show newExpr ++ "\n********\n\n") newExpr
                      
                  _ -> d)
-             defs) body
+             defs) letBody
     _ -> e
   where
-    argPats :: Canonical.Expr' -> [P.CanonicalPattern]
-    argPats (E.Lambda pat (A.A _ body) ) = [pat] ++ (argPats body) 
+    argPats :: Canonical.Expr -> [P.CanonicalPattern]
+    argPats (A.A _ (E.Lambda pat body) ) = [pat] ++ (argPats body) 
     argPats _ = []
 
 --Return a properly annotation expression for tail-calls
 tailCallsForFn :: String -> [P.CanonicalPattern] -> Canonical.Expr -> Maybe (Canonical.Expr)
-tailCallsForFn fnName argPats expr = trace "TC for fn" $
+tailCallsForFn fnName argPats expr = trace ("TC for fn " ++ show fnName) $
   case (State.runState (tcState expr) False) of
     (e, True) -> trace "Returning Just from TC found" $ Just e
     (_, False) -> Nothing
@@ -494,7 +498,7 @@ tailCallsForFn fnName argPats expr = trace "TC for fn" $
     tcState :: Canonical.Expr -> State.State Bool Canonical.Expr 
     tcState expr@(A.A ann e) =  case e of
       --(Binop sub1 sub2 sub3) -> _ --TODO can binops be tail calls?
-      (E.App sub1 sub2) | isFnName e -> do
+      (E.App sub1 sub2) | isFnName e -> trace "TC App" $ do
         State.put True
         return $ A.A (ann {A.isTailCallWithArgs =
                               Just (fnName, argMakers argPats) }) e 
