@@ -27,7 +27,6 @@ import qualified Generate.JavaScript.Variable as Var
 import qualified Reporting.Annotation as A
 import qualified Reporting.Region as R
 
-
 exprStmt e = case e of
   CallExpr () (FuncExpr () _ [] stmts) [] -> BlockStmt () stmts
   _ -> ExprStmt () e
@@ -230,9 +229,9 @@ expression (A.A ann expr) =
 
       MultiIf branches ->
           do  
-              let tcValues = map (\(A.A ann _) -> A.isTailCallWithArgs ann) $ map snd branches
-              case Maybe.catMaybes tcValues of
-                [] -> do
+              let tcValues = map (\(A.A theAnn _) -> (Maybe.isJust $ A.isTailCallWithArgs theAnn) || (Maybe.isJust $ A.hasTailCall theAnn)) $ map snd branches
+              case (List.or tcValues) of
+                False -> do
                      branches' <- forM branches $ \(b,e) -> (,) <$> expression b <*> expression e
                      return $ case last branches of
                        (A.A _ (Var (Var.Canonical (Var.Module ["Basics"]) "otherwise")), _) ->
@@ -257,13 +256,13 @@ expression (A.A ann expr) =
                                    
                             
           where
-            safeIfs branches = ifs (init branches) (snd (last branches))
-            ifs branches finally = foldr iff finally branches
+            safeIfs branchList = ifs (init branchList) (snd (last branchList))
+            ifs branchList finally = foldr iff finally branchList
             iff (if', then') else' = CondExpr () if' then' else'
             safeIfStmt :: [(Expression (), Statement ())] -> Statement ()
-            safeIfStmt branches = ifStmts (init branches) (snd (last branches))
+            safeIfStmt branchList = ifStmts (init branchList) (snd (last branchList))
             ifStmts :: [(Expression (), Statement ())] -> Statement () -> Statement ()
-            ifStmts branches finally = foldr iffStmt finally branches
+            ifStmts branchList finally = foldr iffStmt finally branchList
             iffStmt :: (Expression (), Statement ()) -> Statement () -> Statement ()
             iffStmt (if', then') else' = IfStmt () if' then' else'
 

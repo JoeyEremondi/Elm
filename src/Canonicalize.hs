@@ -502,19 +502,19 @@ tailCallsForFn fnName argPats expr =
                           newVal <- tcState val
                           return (cond, newVal)
                       )
-        return $ A.A ann $ E.MultiIf newBranches
+        return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.MultiIf newBranches
       (E.Lambda arg body) -> do
         newBody <- tcState body
         return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.Lambda arg newBody  
       (E.Let defs body) -> do
         newBody <- tcState body
-        return $ A.A ann $ E.Let defs newBody
+        return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.Let defs newBody
       (E.Case cexp branches) -> do
         newBranches <- State.forM branches
                       (\ (p, val) -> do
                           newVal <- tcState val
                           return (p, newVal))
-        return $ A.A ann $ E.Case cexp newBranches
+        return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.Case cexp newBranches
       _ -> return expr
     isFnName (E.App (A.A _ sub) _) = isFnName sub
     isFnName (E.Var (Var.Canonical (Var.Local) nm)) = nm == fnName
