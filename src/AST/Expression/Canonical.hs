@@ -46,6 +46,3 @@ instance P.Pretty Def where
                 P.pretty dealiaser True pattern
                 <+> P.colon
                 <+> P.pretty dealiaser False tipe
-
-
-

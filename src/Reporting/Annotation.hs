@@ -1,11 +1,13 @@
 module Reporting.Annotation where
 
 import Prelude hiding (map)
+
 import qualified Reporting.PrettyPrint as P
 import qualified Reporting.Region as R
-import qualified Data.List as List
 
+import qualified Data.List as List
 import qualified Language.ECMAScript3.Syntax as JS
+
 -- ANNOTATION
 
 data Annotated annotation a
@@ -56,8 +58,9 @@ instance (P.Pretty a) => P.Pretty (Annotated info a) where
   pretty dealiaser parens (A _ value) =
       P.pretty dealiaser parens value
 
-
-
+--Data type for annotations of expressions after canonicalization
+--We store the region of code that they are in
+--As well as information gathered from analyses for optimimzation
 data CanonicalAnn =
   CanonicalAnn {
     region :: R.Region,
@@ -65,11 +68,12 @@ data CanonicalAnn =
     hasTailCall :: Maybe String
   }
 
+
 showTCInfo :: Maybe (String, [JS.Expression () -> [(String, JS.Expression ())]]) -> String
 showTCInfo Nothing = "Nothing"
 showTCInfo (Just (fnName, tformers)) =
   let
-    appliedFns = ""--List.map (\f -> f $ JS.VarRef () $ JS.Id () "/*PATTERN_EXPR*/"  ) tformers
+    appliedFns = List.map (\f -> f $ JS.VarRef () $ JS.Id () "/*PATTERN_EXPR*/"  ) tformers
   in show (fnName, appliedFns)
         
 instance Show CanonicalAnn where
@@ -78,6 +82,8 @@ instance Show CanonicalAnn where
              ++ (", isTC: " ++ (showTCInfo isTC))
              ++ (", hasTC: " ++ show hasTC ++ "}")             
 
+
+--Create an annotation with no tail call information
 defaultCanonAnn :: R.Region -> CanonicalAnn
 defaultCanonAnn reg =
   CanonicalAnn
@@ -85,12 +91,16 @@ defaultCanonAnn reg =
    isTailCallWithArgs = Nothing,
    hasTailCall = Nothing }
 
+
 type CanonicalLocated  a = Annotated (CanonicalAnn) a
 
 type CanonicalCommented a = Annotated (CanonicalAnn, Maybe String) a
 
+--Remove the extra canonical annotation information, leaving just the region
 unCanon :: CanonicalLocated a -> Located a
 unCanon (A ann x) = A (region ann) x
 
+
+--Remove the extra canonical annotation information, leaving just the region
 commentUnCanon :: CanonicalCommented a -> Commented a
 commentUnCanon (A (ann,comment) x) = A (region ann, comment) x

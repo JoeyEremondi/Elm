@@ -75,6 +75,7 @@ throw kind region =
 (<|) f x =
     CallExpr () f [x]
 
+
 --If we return an expression that only runs a statement
 --We can instead just run that statement
 ret :: Expression () -> Statement ()

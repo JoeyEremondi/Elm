@@ -6,11 +6,11 @@ import Control.Monad.State
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import qualified Data.Maybe as Maybe
 import Language.ECMAScript3.PrettyPrint
 import Language.ECMAScript3.Syntax
 
 
-import qualified Data.Maybe as Maybe
 import AST.Module hiding (body)
 import AST.Expression.General
 import qualified AST.Expression.Canonical as Canonical
@@ -27,9 +27,11 @@ import qualified Generate.JavaScript.Variable as Var
 import qualified Reporting.Annotation as A
 import qualified Reporting.Region as R
 
-exprStmt e = case e of
-  CallExpr () (FuncExpr () _ [] stmts) [] -> BlockStmt () stmts
-  _ -> ExprStmt () e
+exprStmt :: Expression () -> Statement ()
+exprStmt e =
+  case e of
+    CallExpr () (FuncExpr () _ [] stmts) [] -> BlockStmt () stmts
+    _ -> ExprStmt () e
     
 internalImports :: Module.Name -> [VarDecl ()]
 internalImports name =
@@ -63,14 +65,16 @@ literal lit =
     FloatNum n -> NumLit () n
     Boolean  b -> BoolLit () b
 
---Used for distinguishing tail calls: they are translated into stateful statements
+
+--Given an expression, generate the statement returning the value of that expression
+--Just generates a JS return statement, except in the case that the expression
+--is a tail call, in which case it generates argument assignments with a break statement
 returnStatement :: Canonical.Expr -> State Int [Statement ()]
 returnStatement expr@(A.A ann e) =
   --Special case: if we return from a tail call, we don't actually return
   --We instead set paramters then break
   case (A.isTailCallWithArgs ann, e) of
     (Just (fnName, argTforms), App e1 e2) -> do
-            --TODO switch from argument names to argument patterns
             let (_, args) = getArgs e1 [e2]
             args' <- mapM expression args
             let tempIds = map (\i -> "_Temp" ++ (show i) ) [0 .. length args']
@@ -82,7 +86,8 @@ returnStatement expr@(A.A ann e) =
                     (patTform val)
                                                          --
                 makeInit :: (String, Expression ()) -> Statement ()
-                makeInit (arg, val) = VarDeclStmt () [VarDecl () (Id () arg) (Just $ val)]
+                makeInit (arg, val) =
+                  VarDeclStmt () [VarDecl () (Id () arg) (Just $ val)]
                 
             return
               $ (map makeInit firstAssignPairs)
@@ -160,9 +165,10 @@ expression (A.A ann expr) =
       Lambda pattern rawBody -> 
           do  (args, body) <- foldM depattern ([], innerBody) (reverse patterns)
               body' <- expression body
-              let baseFn = case(A.hasTailCall ann) of
-                    Just fnName -> tcoFnBody fnName args body' 
-                    _ -> (args ==> body')
+              let baseFn =
+                    case(A.hasTailCall ann) of
+                      Just fnName -> tcoFnBody fnName args body' 
+                      _ -> (args ==> body')
               return $
                 case (length args < 2, length args > 9) of
                   (True, _) -> baseFn
@@ -172,21 +178,23 @@ expression (A.A ann expr) =
                   (False, False) ->
                     ref ("F" ++ show (length args)) <| baseFn
           where
-            bodyStmt body name = case body of
-              CallExpr () (FuncExpr () _ [] stmts) [] -> LabelledStmt () (Id () name) $
-                   BlockStmt () stmts 
-              _ -> LabelledStmt () (Id () name) $
+            bodyStmt body name =
+              case body of
+                CallExpr () (FuncExpr () _ [] stmts) [] ->
+                  LabelledStmt () (Id () name) $
+                  BlockStmt () stmts 
+                _ -> LabelledStmt () (Id () name) $
                    BlockStmt () [exprStmt body]
             tcoBodyLoop name body = 
               WhileStmt () (BoolLit () True) $ BlockStmt () [
                 bodyStmt body name
                 ]
-            tcoFnBody name args body = FuncExpr () Nothing (map var args) [ tcoBodyLoop name body ] 
+            tcoFnBody name args body =
+              FuncExpr () Nothing (map var args) [ tcoBodyLoop name body ] 
             depattern (args, body) pattern =
                 case pattern of
                   A.A _ (P.Var x) ->
                       return (args ++ [ Var.varName x ], body)
-
                   _ ->
                       do  arg <- Case.newVar
                           return
@@ -229,10 +237,17 @@ expression (A.A ann expr) =
 
       MultiIf branches ->
           do  
-              let tcValues = map (\(A.A theAnn _) -> (Maybe.isJust $ A.isTailCallWithArgs theAnn) || (Maybe.isJust $ A.hasTailCall theAnn)) $ map snd branches
+              let
+                hasTC (A.A theAnn _) =
+                  (Maybe.isJust $ A.isTailCallWithArgs theAnn)
+                  || (Maybe.isJust $ A.hasTailCall theAnn)
+                tcValues =
+                  map hasTC $ map snd branches
               case (List.or tcValues) of
+                --If no tail call: we can translate into conditional expressions in JS
                 False -> do
-                     branches' <- forM branches $ \(b,e) -> (,) <$> expression b <*> expression e
+                     branches' <-
+                       forM branches $ \(b,e) -> (,) <$> expression b <*> expression e
                      return $ case last branches of
                        (A.A _ (Var (Var.Canonical (Var.Module ["Basics"]) "otherwise")), _) ->
                            safeIfs branches'
@@ -241,17 +256,20 @@ expression (A.A ann expr) =
                        _ ->
                            ifs branches' (throw "badIf" (A.region ann))
                 _ -> do
+                  --If there is a tail call, then we need to manipulate control flow
+                  --So we translate into if statements in JS
                   branches' <-
                     forM branches $
                       \(b,e) -> (,) <$> expression b
                                <*> ( (BlockStmt ()) <$> returnStatement e)
-                  let retStmt = case last branches of
-                       (A.A _ (Var (Var.Canonical (Var.Module ["Basics"]) "otherwise")), _) ->
-                           safeIfStmt branches'
-                       (A.A _ (Literal (Boolean True)), _) ->
-                           safeIfStmt branches'
-                       _ ->
-                           ifStmts branches' (exprStmt $ throw "badIf" (A.region ann))
+                  let retStmt =
+                        case last branches of
+                          (A.A _ (Var (Var.Canonical (Var.Module ["Basics"]) "otherwise")), _) ->
+                            safeIfStmt branches'
+                          (A.A _ (Literal (Boolean True)), _) ->
+                            safeIfStmt branches'
+                          _ ->
+                            ifStmts branches' (exprStmt $ throw "badIf" (A.region ann))
                   return $ function [] [retStmt] `call` []
                                    
                             
@@ -259,11 +277,8 @@ expression (A.A ann expr) =
             safeIfs branchList = ifs (init branchList) (snd (last branchList))
             ifs branchList finally = foldr iff finally branchList
             iff (if', then') else' = CondExpr () if' then' else'
-            safeIfStmt :: [(Expression (), Statement ())] -> Statement ()
             safeIfStmt branchList = ifStmts (init branchList) (snd (last branchList))
-            ifStmts :: [(Expression (), Statement ())] -> Statement () -> Statement ()
             ifStmts branchList finally = foldr iffStmt finally branchList
-            iffStmt :: (Expression (), Statement ()) -> Statement () -> Statement ()
             iffStmt (if', then') else' = IfStmt () if' then' else'
 
       Case e cases ->
@@ -356,7 +371,6 @@ definition (Canonical.Definition annPattern expr@(A.A ann _) _) =
               toDef :: String -> State Int [Statement ()]
               toDef y =  
                 let
-                    expr :: Canonical.Expr
                     expr = A.A ann $ Case (mkVar "_") [(annPattern, mkVar y)]
                     pat = A.A patternAnnot (P.Var y)
                 in
@@ -438,7 +452,6 @@ generate modul =
     names :: [String]
     names = Module.names modul
 
-    --TODO can this ever be a tail-call?
     thisModule :: Expression ()
     thisModule = obj (localRuntime : names ++ ["values"])
 

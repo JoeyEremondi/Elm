@@ -12,6 +12,7 @@ data Region = Region
     }
     deriving (Show)
 
+
 data Position = Position
     { line :: Int
     , column :: Int

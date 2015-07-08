@@ -1,11 +1,14 @@
 module Canonicalize (module') where
 
 import Control.Applicative ((<$>),(<*>))
+import qualified Control.Monad.State as State
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
 import qualified Data.Traversable as T
+
+import qualified Language.ECMAScript3.Syntax as JS
 
 import AST.Expression.General (Expr'(..), dummyLet)
 import AST.Module (CanonicalBody(..))
@@ -16,6 +19,7 @@ import qualified AST.Expression.Valid as Valid
 import qualified AST.Expression.Canonical as Canonical
 import qualified AST.Module as Module
 import qualified AST.Pattern as P
+import qualified AST.Traversals as ASTT
 import qualified AST.Type as Type
 import qualified AST.Variable as Var
 import qualified Docs.AST as Docs
@@ -33,11 +37,11 @@ import qualified Canonicalize.Setup as Setup
 import qualified Canonicalize.Sort as Sort
 import qualified Canonicalize.Type as Canonicalize
 import qualified Canonicalize.Variable as Canonicalize
-import qualified AST.Traversals as ASTT
 
-import qualified Control.Monad.State as State
 
-import qualified Language.ECMAScript3.Syntax as JS
+
+
+
 
 
 -- MODULES
@@ -94,7 +98,7 @@ moduleHelp interfaces modul@(Module.Module _ _ comment exports _ decls) =
           `Result.andThen` \env -> (,) env <$> T.traverse (declaration env) decls
 
     body :: [D.CanonicalDecl] -> Module.CanonicalBody
-    body decls = 
+    body decls =
         let nakedDecls = map A.drop decls
         in
         Module.CanonicalBody
@@ -461,27 +465,35 @@ pattern env (A.A region ptrn) =
             <$> Canonicalize.pvar region env name (length patterns)
             <*> T.traverse (pattern env) patterns
 
-
+--Return an identical AST
+--With self-tail-calls approproately marked in their annotation
 markTailCalls :: Canonical.Expr -> Canonical.Expr
-markTailCalls =  ASTT.mapExpr $ \(A.A ann e) ->
-  A.A ann $ case e of
-    E.Let defs letBody -> 
-      E.Let (map
-             (\d@(Canonical.Definition lhs rhs tp) ->
-               case (lhs, rhs) of
-                 (A.A _ (P.Var fnName), fnExp@(A.A _ (E.Lambda _ _)) ) ->
-                   case (tailCallsForFn fnName (argPats $ fnExp ) fnExp) of
-                     Nothing -> d
-                     Just newFn ->  Canonical.Definition lhs newFn tp
-                 _ -> d)
-             defs) letBody
-    _ -> e
-  where
-    argPats :: Canonical.Expr -> [P.CanonicalPattern]
-    argPats (A.A _ (E.Lambda pat body) ) = [pat] ++ (argPats body) 
-    argPats _ = []
+markTailCalls =
+  ASTT.mapExpr $ \(A.A ann e) ->
+    A.A ann $ case e of
+      --We ignore expressions that aren't Let
+      --mapExpr takes care of recursively traversing sub-expressions
+      E.Let defs letBody -> 
+        E.Let (map
+               (\d@(Canonical.Definition lhs rhs tp) ->
+                 case (lhs, rhs) of
+                   (A.A _ (P.Var fnName), fnExp@(A.A _ (E.Lambda _ _)) ) ->
+                     case (tailCallsForFn fnName (argPats $ fnExp ) fnExp) of
+                       Nothing -> d
+                       Just newFn ->  Canonical.Definition lhs newFn tp
+                   _ -> d)
+               defs) letBody
+      _ -> e
+    where
+      argPats :: Canonical.Expr -> [P.CanonicalPattern]
+      argPats fn = case fn of
+        (A.A _ (E.Lambda pat body) ) -> [pat] ++ (argPats body) 
+        _ -> []
 
---Return a properly annotation expression for tail-calls
+--Given the name of the function an expression is part of,
+--A list of patterns for the arguments, and an expression
+--Return Nothing if the expression contains no tail-calls
+--or the expression, with the tail calls properly annotated
 tailCallsForFn :: String -> [P.CanonicalPattern] -> Canonical.Expr -> Maybe (Canonical.Expr)
 tailCallsForFn fnName argPats expr =
   case (State.runState (tcState expr) False) of
@@ -489,50 +501,54 @@ tailCallsForFn fnName argPats expr =
     (_, False) -> Nothing
   where
     tcState :: Canonical.Expr -> State.State Bool Canonical.Expr 
-    tcState expr@(A.A ann e) =  case e of
-      --(Binop sub1 sub2 sub3) -> _ --TODO can binops be tail calls?
-      (E.App sub1 sub2) | isFnName e -> do
-        State.put True
-        return $ A.A (ann {A.isTailCallWithArgs =
-                              Just (fnName, argMakers argPats) }) e 
-      (E.MultiIf branches) -> do
-        newBranches <- State.forM branches
-                      (\(cond, val ) ->
-                        do
-                          newVal <- tcState val
-                          return (cond, newVal)
-                      )
-        return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.MultiIf newBranches
-      (E.Lambda arg body) -> do
-        newBody <- tcState body
-        return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.Lambda arg newBody  
-      (E.Let defs body) -> do
-        newBody <- tcState body
-        return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.Let defs newBody
-      (E.Case cexp branches) -> do
-        newBranches <- State.forM branches
-                      (\ (p, val) -> do
-                          newVal <- tcState val
-                          return (p, newVal))
-        return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.Case cexp newBranches
-      _ -> return expr
-    isFnName (E.App (A.A _ sub) _) = isFnName sub
-    isFnName (E.Var (Var.Canonical (Var.Local) nm)) = nm == fnName
-    isFnName x = False
+    tcState wholeExpr@(A.A ann e) =
+      case e of
+        --(Binop sub1 sub2 sub3) -> _ --TODO can binops be tail calls?
+        (E.App _sub1 _sub2) | isFnName e -> do
+          State.put True
+          return $ A.A (ann {A.isTailCallWithArgs =
+                                Just (fnName, argMakers argPats) }) e 
+        (E.MultiIf branches) -> do
+          newBranches <- State.forM branches
+                        (\(cond, val ) ->
+                          do
+                            newVal <- tcState val
+                            return (cond, newVal)
+                        )
+          return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.MultiIf newBranches
+        (E.Lambda arg body) -> do
+          newBody <- tcState body
+          return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.Lambda arg newBody  
+        (E.Let defs body) -> do
+          newBody <- tcState body
+          return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.Let defs newBody
+        (E.Case cexp branches) -> do
+          newBranches <- State.forM branches
+                        (\ (p, val) -> do
+                            newVal <- tcState val
+                            return (p, newVal))
+          return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.Case cexp newBranches
+        _ -> return wholeExpr
+    isFnName fnExp =
+      case fnExp of
+        (E.App (A.A _ sub) _) -> isFnName sub
+        (E.Var (Var.Canonical (Var.Local) nm)) -> nm == fnName
+        _ -> False
+    --Get the JS argument accessors for a list of patterns
     argMakers pats = map (\pat rhs -> argMaker pat rhs) pats
     --Given a pattern
     --And a JS expression representing the value this pattern represents
     --Return the list of variables and expressions needed to assign the proper value
     --To each variable of the pattern
     argMaker :: P.CanonicalPattern -> JS.Expression () -> [(String, JS.Expression ())]
-    argMaker (A.A ann pat) rhs =
+    argMaker (A.A _ pat) rhs =
       case pat of
-        (P.Data ctor subPats) ->
+        (P.Data _ subPats) ->
           let
             subRHSes = map (\i -> JS.DotRef () rhs (JS.Id () $ "_" ++ show i) ) [1.. length subPats]
           in concat $ zipWith argMaker subPats subRHSes
         (P.Record fields) -> map (\field -> (field, JS.DotRef () rhs (JS.Id () field))) fields
-        (P.Alias p1 p2) -> [(p1, rhs)]
+        (P.Alias p1 _) -> [(p1, rhs)]
         (P.Var p) -> [(p, rhs)]
         P.Anything -> [] --Don't have to assign if we don't examine its value
-        (P.Literal p) -> [] --Don't have to assign if its value is fixed
+        (P.Literal _) -> [] --Don't have to assign if its value is fixed
