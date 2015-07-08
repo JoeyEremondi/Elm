@@ -11,9 +11,9 @@ import qualified Reporting.Annotation as A
 import qualified Reporting.PrettyPrint as P
 import qualified Reporting.Region as R
 
+
 type Pattern ann var =
     A.Annotated ann (Pattern' ann var)
-
 
 
 data Pattern' ann var

@@ -27,6 +27,7 @@ import qualified Generate.JavaScript.Variable as Var
 import qualified Reporting.Annotation as A
 import qualified Reporting.Region as R
 
+
 exprStmt :: Expression () -> Statement ()
 exprStmt e =
   case e of
@@ -92,7 +93,7 @@ returnStatement expr@(A.A ann e) =
             return
               $ (map makeInit firstAssignPairs)
                 ++ (concatMap makeAssign secondAssignPairs)
-                ++ [BreakStmt () (Just $ Id () fnName)] --TODO: what about pattern vars?
+                ++ [BreakStmt () (Just $ Id () fnName)]
     --Normal case: just return the expression
     _ -> do
       jsExp <- expression expr
@@ -161,7 +162,10 @@ expression (A.A ann expr) =
 
       Binop op e1 e2 ->
           binop ann op e1 e2
-            
+
+      --For lambdas, we see if the expression contains tail calls
+      --If it does, then we wrap the function body in a while loop and a block statement
+      --so that tail calls can just assign arguments and break from the loop
       Lambda pattern rawBody -> 
           do  (args, body) <- foldM depattern ([], innerBody) (reverse patterns)
               body' <- expression body
@@ -173,11 +177,11 @@ expression (A.A ann expr) =
                 case (length args < 2, length args > 9) of
                   (True, _) -> baseFn
                   --We don't optimize for tail-calls if there's more than 9 arguments
-                  --TODO is this bad
                   (_, True)  -> foldr (==>) body' (map (:[]) args)
                   (False, False) ->
                     ref ("F" ++ show (length args)) <| baseFn
           where
+            --The statement for a function
             bodyStmt body name =
               case body of
                 CallExpr () (FuncExpr () _ [] stmts) [] ->

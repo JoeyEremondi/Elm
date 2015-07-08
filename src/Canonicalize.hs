@@ -39,11 +39,6 @@ import qualified Canonicalize.Type as Canonicalize
 import qualified Canonicalize.Variable as Canonicalize
 
 
-
-
-
-
-
 -- MODULES
 
 module'
@@ -104,9 +99,8 @@ moduleHelp interfaces modul@(Module.Module _ _ comment exports _ decls) =
         Module.CanonicalBody
           { program =
               let expr = Decls.toExpr (Module.names modul) decls
-                  newExpr = markTailCalls $ Sort.definitions (dummyLet expr)
               in
-                  newExpr
+                  markTailCalls $ Sort.definitions (dummyLet expr)
 
           , types =
               Map.empty
@@ -284,7 +278,6 @@ declaration env (A.A (region,comment) decl) =
           D.Definition <$> (
               Canonical.Definition
                 <$> pattern env pat
-                --Identify all the tail calls for the expressions we generate
                 <*> expression env expr
                 <*> T.traverse (regionType env) typ
           )
@@ -503,7 +496,10 @@ tailCallsForFn fnName argPats expr =
     tcState :: Canonical.Expr -> State.State Bool Canonical.Expr 
     tcState wholeExpr@(A.A ann e) =
       case e of
-        --(Binop sub1 sub2 sub3) -> _ --TODO can binops be tail calls?
+        (Binop op _ _) | isFnName (E.Var op) -> do
+          State.put True
+          return $ A.A (ann {A.isTailCallWithArgs =
+                                Just (fnName, argMakers argPats) }) e
         (E.App _sub1 _sub2) | isFnName e -> do
           State.put True
           return $ A.A (ann {A.isTailCallWithArgs =
@@ -548,7 +544,7 @@ tailCallsForFn fnName argPats expr =
             subRHSes = map (\i -> JS.DotRef () rhs (JS.Id () $ "_" ++ show i) ) [1.. length subPats]
           in concat $ zipWith argMaker subPats subRHSes
         (P.Record fields) -> map (\field -> (field, JS.DotRef () rhs (JS.Id () field))) fields
-        (P.Alias p1 _) -> [(p1, rhs)]
+        (P.Alias p1 subPats) -> [(p1, rhs)] ++ argMaker subPats rhs 
         (P.Var p) -> [(p, rhs)]
         P.Anything -> [] --Don't have to assign if we don't examine its value
         (P.Literal _) -> [] --Don't have to assign if its value is fixed
