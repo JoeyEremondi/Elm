@@ -8,6 +8,11 @@ import qualified Reporting.Annotation as A
 import qualified Data.List as List
 
 
+{-
+Given an expression and an expression transforming function,
+apply the function bottom-up to each sub-expression of this expression,
+as well as the expression itself
+-}
 mapExpr :: (Canonical.Expr -> Canonical.Expr ) -> Canonical.Expr -> Canonical.Expr
 mapExpr f (A.A ann e) =
   f $ A.A ann newExpr
@@ -34,12 +39,12 @@ mapExpr f (A.A ann e) =
         (Port sub) -> Port $ mapPort f sub
         (GLShader sub1 sub2 sub3) -> GLShader sub1 sub2 sub3
 
-
+--Apply an expression transformer to the right-hand side of a definition
 mapDef :: (Canonical.Expr -> Canonical.Expr ) -> Canonical.Def -> Canonical.Def
 mapDef f (Definition lhs rhs maybeTipe) =
   Definition lhs (mapExpr f rhs) maybeTipe
 
-
+--Apply an expression transformer to each expression in a port declaration
 mapPort :: (Canonical.Expr -> Canonical.Expr ) -> PortImpl Canonical.Expr t -> PortImpl Canonical.Expr t 
 mapPort f portImpl =
   case portImpl of 

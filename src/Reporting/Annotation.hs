@@ -87,9 +87,11 @@ instance Show CanonicalAnn where
 defaultCanonAnn :: R.Region -> CanonicalAnn
 defaultCanonAnn reg =
   CanonicalAnn
-  {region = reg,
-   isTailCallWithArgs = Nothing,
-   hasTailCall = Nothing }
+  {
+    region = reg, --Where in the source code is this expression?
+    isTailCallWithArgs = Nothing, --Is this expression a function containing tail calls?
+    hasTailCall = Nothing --Is this expression a call in tail-position?
+  }
 
 
 type CanonicalLocated  a = Annotated (CanonicalAnn) a
