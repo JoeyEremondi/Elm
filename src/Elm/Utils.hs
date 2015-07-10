@@ -182,12 +182,12 @@ writeMIOTime name action = do
   !endTime <- liftIO $ getCPUTime
   rand <- liftIO $ randomRIO (1::Int, 2^31::Int)
   let timeString = show $ picoToSeconds $ endTime - startTime
-  liftIO $ writeFile ("timings/timing_" ++ name ++ "_" ++ show rand ++ ".out") (name ++ " " ++ timeString ++ "\n")
+  liftIO $ writeFile (".timings/timing_" ++ name ++ "_" ++ show rand ++ ".out") (name ++ " " ++ timeString ++ "\n")
   return result
 
 withPrintTime :: String -> String -> a -> a
 withPrintTime name s x = unsafePerformIO $! do
   !currentTime <- getCPUTime
   rand <- randomRIO (1::Int, 2^31::Int)
-  writeFile ("timings/timing_" ++ name ++ "_" ++ show rand ++ ".out") (name ++ " " ++ s ++ "\n")
+  writeFile (".timings/timing_" ++ name ++ "_" ++ show rand ++ ".out") (name ++ " " ++ s ++ "\n")
   return $! x
