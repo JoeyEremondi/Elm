@@ -33,6 +33,7 @@ exprStmt e =
   case e of
     CallExpr () (FuncExpr () _ [] stmts) [] -> BlockStmt () stmts
     _ -> ExprStmt () e
+
     
 internalImports :: Module.Name -> [VarDecl ()]
 internalImports name =
@@ -75,34 +76,35 @@ returnStatement expr@(A.A ann e) =
   --Special case: if we return from a tail call, we don't actually return
   --We instead set paramters then break
   case (A.isTailCallWithArgs ann, e) of
-    (Just (fnName, argTforms), App e1 e2) -> do
-            let (_, args) = getArgs e1 [e2]
-            args' <- mapM expression args
-            let tempIds = map (\i -> "_Temp" ++ (show i) ) [0 .. length args']
-            let firstAssignPairs = zip tempIds args'
-            let secondAssignPairs = zip argTforms (map ref tempIds)
-                makeAssign (patTform, val) =
+    (Just (fnName, argTforms), App e1 e2) ->
+      do let getArgs func args =
+                case func of
+                  (A.A _ (App f arg)) -> getArgs f (arg : args)
+                  _ -> (func, args)
+             (_, args) = getArgs e1 [e2]
+         args' <- mapM expression args
+         let tempIds = map (\i -> "_Temp" ++ (show i) ) [0 .. length args']
+         let firstAssignPairs = zip tempIds args'
+         let secondAssignPairs = zip argTforms (map ref tempIds)
+             makeAssign (patTform, val) =
                   map (\ (argName, tformedVal) ->
                         exprStmt $  AssignExpr () OpAssign (LVar () argName) tformedVal )
                     (patTform val)
                                                          --
-                makeInit :: (String, Expression ()) -> Statement ()
-                makeInit (arg, val) =
+             makeInit :: (String, Expression ()) ->
+                        Statement ()
+             makeInit (arg, val) =
                   VarDeclStmt () [VarDecl () (Id () arg) (Just $ val)]
-                
-            return
+         return
               $ (map makeInit firstAssignPairs)
                 ++ (concatMap makeAssign secondAssignPairs)
-                ++ [BreakStmt () (Just $ Id () fnName)]
+                ++ [ContinueStmt () (Just $ Id () fnName)]
+              
     --Normal case: just return the expression
     _ -> do
       jsExp <- expression expr
       return $ [ret jsExp]
-  where
-    getArgs func args =
-                case func of
-                  (A.A _ (App f arg)) -> getArgs f (arg : args)
-                  _ -> (func, args)
+    
 
 expression :: Canonical.Expr -> State Int (Expression ())
 expression (A.A ann expr) =
@@ -167,34 +169,38 @@ expression (A.A ann expr) =
       --If it does, then we wrap the function body in a while loop and a block statement
       --so that tail calls can just assign arguments and break from the loop
       Lambda pattern rawBody -> 
-          do  (args, body) <- foldM depattern ([], innerBody) (reverse patterns)
-              body' <- expression body
-              let baseFn =
+          do let
+               tcoBodyLoop name body =
+                 LabelledStmt () (Id () name) $
+                 WhileStmt () (BoolLit () True) $ BlockStmt () [
+                   exprStmt body
+                   ]
+               tcoFnBody name args body =
+                 FuncExpr () Nothing (map var args) [ tcoBodyLoop name body ]
+             (args, body) <-
+                foldM depattern ([], innerBody) (reverse patterns)
+             body' <-
+                expression body
+             let baseFn =
                     case(A.hasTailCall ann) of
-                      Just fnName -> tcoFnBody fnName args body' 
+                      Just fnName ->
+                        tcoFnBody fnName args body'
+                        
                       _ -> (args ==> body')
-              return $
+                      
+             return $
                 case (length args < 2, length args > 9) of
-                  (True, _) -> baseFn
+                  
+                  (True, _) ->
+                    baseFn
+                  
                   --We don't optimize for tail-calls if there's more than 9 arguments
-                  (_, True)  -> foldr (==>) body' (map (:[]) args)
+                  (_, True)  ->
+                    foldr (==>) body' (map (:[]) args)
+                  
                   (False, False) ->
                     ref ("F" ++ show (length args)) <| baseFn
-          where
-            --The statement for a function
-            bodyStmt body name =
-              case body of
-                CallExpr () (FuncExpr () _ [] stmts) [] ->
-                  LabelledStmt () (Id () name) $
-                  BlockStmt () stmts 
-                _ -> LabelledStmt () (Id () name) $
-                   BlockStmt () [exprStmt body]
-            tcoBodyLoop name body = 
-              WhileStmt () (BoolLit () True) $ BlockStmt () [
-                bodyStmt body name
-                ]
-            tcoFnBody name args body =
-              FuncExpr () Nothing (map var args) [ tcoBodyLoop name body ] 
+          where 
             depattern (args, body) pattern =
                 case pattern of
                   A.A _ (P.Var x) ->
@@ -217,14 +223,16 @@ expression (A.A ann expr) =
       App e1 e2 -> do
         args' <- mapM expression args
         case A.isTailCallWithArgs ann of
-          Just argNames -> error "Should have removed tail call earlier"
-          Nothing -> do
-              func' <- expression func
-              return $
-                case args' of
-                  [arg] -> func' <| arg
-                  _ | length args' <= 9 -> ref aN `call` (func':args')
-                    | otherwise         -> foldl1 (<|) (func':args')
+          Just _argNames ->
+            error "Should have removed tail call earlier"
+
+          Nothing ->
+            do func' <- expression func
+               return $
+                 case args' of
+                   [arg] -> func' <| arg
+                   _ | length args' <= 9 -> ref aN `call` (func':args')
+                     | otherwise         -> foldl1 (<|) (func':args')
           where
             aN = "A" ++ show (length args)
             (func, args) = getArgs e1 [e2]
@@ -259,6 +267,7 @@ expression (A.A ann expr) =
                            safeIfs branches'
                        _ ->
                            ifs branches' (throw "badIf" (A.region ann))
+                           
                 _ -> do
                   --If there is a tail call, then we need to manipulate control flow
                   --So we translate into if statements in JS
@@ -266,24 +275,24 @@ expression (A.A ann expr) =
                     forM branches $
                       \(b,e) -> (,) <$> expression b
                                <*> ( (BlockStmt ()) <$> returnStatement e)
+                  let
+                    safeIfStmt branchList = ifStmts (init branchList) (snd (last branchList))
+                    ifStmts branchList finally = foldr iffStmt finally branchList
+                    iffStmt (if', then') else' = IfStmt () if' then' else'
                   let retStmt =
                         case last branches of
                           (A.A _ (Var (Var.Canonical (Var.Module ["Basics"]) "otherwise")), _) ->
                             safeIfStmt branches'
+                            
                           (A.A _ (Literal (Boolean True)), _) ->
                             safeIfStmt branches'
                           _ ->
                             ifStmts branches' (exprStmt $ throw "badIf" (A.region ann))
-                  return $ function [] [retStmt] `call` []
-                                   
-                            
+                  return $ function [] [retStmt] `call` []                            
           where
             safeIfs branchList = ifs (init branchList) (snd (last branchList))
             ifs branchList finally = foldr iff finally branchList
             iff (if', then') else' = CondExpr () if' then' else'
-            safeIfStmt branchList = ifStmts (init branchList) (snd (last branchList))
-            ifStmts branchList finally = foldr iffStmt finally branchList
-            iffStmt (if', then') else' = IfStmt () if' then' else'
 
       Case e cases ->
           do  (tempVar,initialMatch) <- Case.toMatch cases
