@@ -501,7 +501,7 @@ constrainDef env info (Canonical.Definition (A.A patAnnot pattern) expr maybeTip
   in
   case (pattern, maybeTipe) of
     (P.Var name, Just (A.A typeAnnot tipe)) ->
-        constrainAnnotatedDef env info qs (A.region patAnnot) (A.region typeAnnot) name expr tipe
+        constrainAnnotatedDef env info qs (A.region patAnnot) typeAnnot name expr tipe
 
     (P.Var name, Nothing) ->
         constrainUnannotatedDef env info qs (A.region patAnnot) name expr

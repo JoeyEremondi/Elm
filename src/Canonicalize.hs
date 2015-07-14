@@ -272,7 +272,7 @@ declaration
     -> D.ValidDecl
     -> Result.ResultErr D.CanonicalDecl
 declaration env (A.A (region,comment) decl) =
-    A.A (A.defaultCanonAnn region, comment) <$>
+    A.A (region, comment) <$>
     case decl of
       D.Definition (Valid.Definition pat expr typ) ->
           D.Definition <$> (
@@ -318,9 +318,9 @@ declaration env (A.A (region,comment) decl) =
 regionType
     :: Env.Environment
     -> Type.Raw
-    -> Result.ResultErr (A.CanonicalLocated Type.Canonical)
+    -> Result.ResultErr (A.Located Type.Canonical)
 regionType env typ@(A.A region _) =
-  A.A (A.defaultCanonAnn region) <$> Canonicalize.tipe env typ
+  A.A region <$> Canonicalize.tipe env typ
 
 
 expression
@@ -330,7 +330,7 @@ expression
 expression env (A.A region validExpr) =
     let go = expression env
     in
-    A.A (A.defaultCanonAnn region) <$>
+    A.A (A.defaultMetaData region) <$>
     case validExpr of
       Literal lit ->
           Result.ok (Literal lit)
@@ -436,7 +436,7 @@ pattern
     -> P.RawPattern
     -> Result.ResultErr P.CanonicalPattern
 pattern env (A.A region ptrn) =
-  A.A (A.defaultCanonAnn region) <$>
+  A.A (A.defaultMetaData region) <$>
     case ptrn of
       P.Var x ->
           Result.ok (P.Var x)

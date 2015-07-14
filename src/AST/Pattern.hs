@@ -35,7 +35,7 @@ type RawPattern' =
 
 
 type CanonicalPattern =
-    Pattern A.CanonicalAnn Var.Canonical
+    Pattern A.ExprMetaData Var.Canonical
 
 
 list :: R.Position -> [RawPattern] -> RawPattern

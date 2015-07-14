@@ -31,8 +31,11 @@ import qualified Reporting.Region as R
 exprStmt :: Expression () -> Statement ()
 exprStmt e =
   case e of
-    CallExpr () (FuncExpr () _ [] stmts) [] -> BlockStmt () stmts
-    _ -> ExprStmt () e
+    CallExpr () (FuncExpr () _ [] stmts) [] ->
+      BlockStmt () stmts
+
+    _ ->
+      ExprStmt () e
 
     
 internalImports :: Module.Name -> [VarDecl ()]
@@ -84,8 +87,11 @@ returnStatement expr@(A.A ann e) =
              (_, args) = getArgs e1 [e2]
          args' <- mapM expression args
          let tempIds = map (\i -> "_Temp" ++ (show i) ) [0 .. length args']
-         let firstAssignPairs = zip tempIds args'
-         let secondAssignPairs = zip argTforms (map ref tempIds)
+         
+             firstAssignPairs = zip tempIds args'
+             
+             secondAssignPairs = zip argTforms (map ref tempIds)
+             
              makeAssign (patTform, val) =
                   map (\ (argName, tformedVal) ->
                         exprStmt $  AssignExpr () OpAssign (LVar () argName) tformedVal )
@@ -101,9 +107,9 @@ returnStatement expr@(A.A ann e) =
                 ++ [ContinueStmt () (Just $ Id () fnName)]
               
     --Normal case: just return the expression
-    _ -> do
-      jsExp <- expression expr
-      return $ [ret jsExp]
+    _ ->
+      do jsExp <- expression expr
+         return $ [ret jsExp]
     
 
 expression :: Canonical.Expr -> State Int (Expression ())
@@ -169,14 +175,13 @@ expression (A.A ann expr) =
       --If it does, then we wrap the function body in a while loop and a block statement
       --so that tail calls can just assign arguments and break from the loop
       Lambda pattern rawBody -> 
-          do let
-               tcoBodyLoop name body =
-                 LabelledStmt () (Id () name) $
-                 WhileStmt () (BoolLit () True) $ BlockStmt () [
-                   exprStmt body
-                   ]
-               tcoFnBody name args body =
-                 FuncExpr () Nothing (map var args) [ tcoBodyLoop name body ]
+          do let tcoBodyLoop name body =
+                   LabelledStmt () (Id () name) $
+                   WhileStmt () (BoolLit () True) $ BlockStmt () [
+                     exprStmt body
+                     ]
+                 tcoFnBody name args body =
+                   FuncExpr () Nothing (map var args) [ tcoBodyLoop name body ]
              (args, body) <-
                 foldM depattern ([], innerBody) (reverse patterns)
              body' <-
@@ -248,24 +253,25 @@ expression (A.A ann expr) =
               return $ function [] (stmts ++ rsList) `call` []
 
       MultiIf branches ->
-          do  
-              let
-                hasTC (A.A theAnn _) =
-                  (Maybe.isJust $ A.isTailCallWithArgs theAnn)
-                  || (Maybe.isJust $ A.hasTailCall theAnn)
-                tcValues =
-                  map hasTC $ map snd branches
+          do  let hasTC (A.A theAnn _) =
+                    (Maybe.isJust $ A.isTailCallWithArgs theAnn)
+                    || (Maybe.isJust $ A.hasTailCall theAnn)
+                  tcValues =
+                    map hasTC $ map snd branches
               case (List.or tcValues) of
                 --If no tail call: we can translate into conditional expressions in JS
-                False -> do
-                     branches' <-
+                False ->
+                  do branches' <-
                        forM branches $ \(b,e) -> (,) <$> expression b <*> expression e
-                     return $ case last branches of
-                       (A.A _ (Var (Var.Canonical (Var.Module ["Basics"]) "otherwise")), _) ->
+                     return $
+                       case last branches of
+                         (A.A _ (Var (Var.Canonical (Var.Module ["Basics"]) "otherwise")), _) ->
                            safeIfs branches'
-                       (A.A _ (Literal (Boolean True)), _) ->
+                           
+                         (A.A _ (Literal (Boolean True)), _) ->
                            safeIfs branches'
-                       _ ->
+                           
+                         _ ->
                            ifs branches' (throw "badIf" (A.region ann))
                            
                 _ -> do
@@ -286,6 +292,7 @@ expression (A.A ann expr) =
                             
                           (A.A _ (Literal (Boolean True)), _) ->
                             safeIfStmt branches'
+                            
                           _ ->
                             ifStmts branches' (exprStmt $ throw "badIf" (A.region ann))
                   return $ function [] [retStmt] `call` []                            
@@ -544,7 +551,7 @@ generate modul =
 
 
 binop
-    :: A.CanonicalAnn
+    :: A.ExprMetaData
     -> Var.Canonical
     -> Canonical.Expr
     -> Canonical.Expr
