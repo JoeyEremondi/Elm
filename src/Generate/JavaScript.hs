@@ -10,7 +10,6 @@ import qualified Data.Maybe as Maybe
 import Language.ECMAScript3.PrettyPrint
 import Language.ECMAScript3.Syntax
 
-
 import AST.Module hiding (body)
 import AST.Expression.General
 import qualified AST.Expression.Canonical as Canonical

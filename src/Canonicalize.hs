@@ -467,7 +467,7 @@ markTailCalls =
     argPats :: Canonical.Expr -> [P.CanonicalPattern]
     argPats fn =
       case fn of
-          (A.A _ (E.Lambda pat body) ) ->
+          A.A _ (E.Lambda pat body) ->
             [pat] ++ (argPats body)
             
           _ ->
@@ -509,32 +509,32 @@ tailCallsForFn fnName argPats expr =
     tcState :: Canonical.Expr -> State.State Bool Canonical.Expr 
     tcState wholeExpr@(A.A ann e) =
       case e of
-        (Binop op _ _) | isFnName (E.Var op) ->
+        Binop op _ _ | isFnName (E.Var op) ->
           do State.put True
              return $ A.A (ann {A.isTailCallWithArgs =
                                 Just (fnName, argMakers argPats) }) e
                
-        (E.App _sub1 _sub2) | isFnName e ->
+        E.App _sub1 _sub2 | isFnName e ->
           do State.put True
              return $ A.A (ann {A.isTailCallWithArgs =
                                 Just (fnName, argMakers argPats) }) e
                
-        (E.MultiIf branches) ->
+        E.MultiIf branches ->
           do newBranches <- State.forM branches
                         (\(cond, val ) ->
                           do newVal <- tcState val
                              return (cond, newVal) )
              return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.MultiIf newBranches
              
-        (E.Lambda arg body) ->
+        E.Lambda arg body ->
           do newBody <- tcState body
              return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.Lambda arg newBody  
 
-        (E.Let defs body) ->
+        E.Let defs body ->
           do newBody <- tcState body
              return $ A.A (ann {A.hasTailCall = Just fnName} ) $ E.Let defs newBody
 
-        (E.Case cexp branches) ->
+        E.Case cexp branches ->
           do newBranches <- State.forM branches
                         (\ (p, val) ->
                           do newVal <- tcState val
@@ -545,9 +545,9 @@ tailCallsForFn fnName argPats expr =
         
     isFnName fnExp =
       case fnExp of
-        (E.App (A.A _ sub) _) -> isFnName sub
+        E.App (A.A _ sub) _ -> isFnName sub
         
-        (E.Var (Var.Canonical (Var.Local) nm)) -> nm == fnName
+        E.Var (Var.Canonical (Var.Local) nm) -> nm == fnName
         
         _ -> False
 
@@ -564,25 +564,25 @@ tailCallsForFn fnName argPats expr =
       -> [(String, JS.Expression ())]
     argMaker (A.A _ pat) rhs =
       case pat of
-        (P.Data _ subPats) ->
+        P.Data _ subPats ->
           let
             subRHSes = map (\i -> JS.DotRef () rhs (JS.Id () $ "_" ++ show i) ) [1.. length subPats]
           in
            concat $ zipWith argMaker subPats subRHSes
              
-        (P.Record fields) ->
+        P.Record fields ->
           map (\field -> (field, JS.DotRef () rhs (JS.Id () field))) fields
         
-        (P.Alias p1 subPats) ->
+        P.Alias p1 subPats ->
           [(p1, rhs)] ++ argMaker subPats rhs
         
-        (P.Var p) ->
+        P.Var p ->
           [(p, rhs)]
         
         P.Anything ->
           [] --Don't have to assign if we don't examine its value
         
-        (P.Literal _) ->
+        P.Literal _ ->
           [] --Don't have to assign if its value is fixed
           
   in

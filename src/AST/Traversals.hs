@@ -26,71 +26,71 @@ mapMExpr fm (A.A ann e) =
        
        newExprM =
          case e of
-           (Literal _) ->
+           Literal _ ->
              return e
          
-           (Var _) ->
+           Var _ ->
              return e
          
-           (Range start end) ->
+           Range start end ->
              Range <$> self start <*> self end
          
-           (ExplicitList subList) ->
+           ExplicitList subList ->
              ExplicitList <$> forM subList self
          
-           (Binop op arg1 arg2) ->
+           Binop op arg1 arg2 ->
              (Binop op) <$> self arg1 <*> self arg2
          
-           (Lambda pat body) ->
+           Lambda pat body ->
              (Lambda pat) <$> self body
          
-           (App fn arg) ->
+           App fn arg ->
              App <$> self fn <*> self arg
          
-           (MultiIf pairs) ->
+           MultiIf pairs ->
              do let (conds, exprs) = unzip pairs
                 newConds <- forM conds self
                 newExprs <- forM exprs self
                 return $ MultiIf $ zip newConds newExprs
            
-           (Let defs body) ->
+           Let defs body ->
              do newDefs <- forM defs $ mapMDef fm
                 newBody <- self body
                 return $ Let newDefs newBody
            
-           (Case cexp branches) ->
+           Case cexp branches ->
              do let (pats, branchExps) = unzip branches 
                 newCexp <- self cexp
                 newExps <- forM branchExps self
                 return $ Case newCexp $ zip pats newExps
            
-           (Data ctor args) ->
+           Data ctor args ->
              (Data ctor) <$> forM args self
          
-           (Access recExp field) ->
+           Access recExp field ->
              Access <$> self recExp <*> return field
          
-           (Remove recExp field) ->
+           Remove recExp field ->
              Remove <$> self recExp <*> return field
          
-           (Insert recExp field arg) ->
+           Insert recExp field arg ->
              Insert <$> self recExp <*> return field <*> self arg
          
-           (Modify recExp fieldPairs) ->
+           Modify recExp fieldPairs ->
              do let (names, vals) = unzip fieldPairs
                 newVals <- forM vals self
                 newRec <- self recExp
                 return $ Modify newRec $ zip names newVals
            
-           (Record pairs) ->
+           Record pairs ->
              do let (names, vals) = unzip pairs
                 newVals <- forM vals self
                 return $ Record $ zip names newVals
            
-           (Port sub) ->
+           Port sub ->
              Port <$> mapMPort fm sub
          
-           (GLShader _ _ _) ->
+           GLShader _ _ _ ->
              return e
          
      newExpr <- newExprM
@@ -129,13 +129,13 @@ mapMPort
   -> m (PortImpl Canonical.Expr t) 
 mapMPort f portImpl =
   case portImpl of 
-    (In p1 p2) ->
+    In p1 p2 ->
       return $ In p1 p2
       
-    (Out p1 p2 p3) -> do
+    Out p1 p2 p3 -> do
       newExpr <- mapMExpr f p2
       return $ Out p1 newExpr p3
       
-    (Task p1 p2 p3) -> do
+    Task p1 p2 p3 -> do
       newExpr <- mapMExpr f p2
       return $ Task p1 newExpr p3
