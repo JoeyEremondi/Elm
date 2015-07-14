@@ -74,7 +74,7 @@ addDeclToDocs (A.A (region,maybeComment) decl) docs =
           ctors' =
             map (second (map Extract.toAliasedType)) ctors
 
-          union = 
+          union =
             A.A region (Docs.Union maybeComment args ctors')
         in
           docs { rawTypes = Map.insert name union (rawTypes docs) }

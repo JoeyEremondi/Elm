@@ -388,7 +388,6 @@ definition (Canonical.Definition annPattern expr@(A.A ann _) _) =
             where
               vars = P.boundVarList annPattern
               mkVar = A.A ann . localVar
-              toDef :: String -> State Int [Statement ()]
               toDef y =  
                 let
                     expr = A.A ann $ Case (mkVar "_") [(annPattern, mkVar y)]

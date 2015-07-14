@@ -271,8 +271,8 @@ declaration
     :: Env.Environment
     -> D.ValidDecl
     -> Result.ResultErr D.CanonicalDecl
-declaration env (A.A (region,comment) decl) =
-    A.A (region, comment) <$>
+declaration env (A.A ann@(region,_) decl) =
+    A.A ann <$>
     case decl of
       D.Definition (Valid.Definition pat expr typ) ->
           D.Definition <$> (
