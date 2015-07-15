@@ -235,7 +235,9 @@ expression (A.A ann expr) =
                return $
                  case args' of
                    [arg] -> func' <| arg
+                   
                    _ | length args' <= 9 -> ref aN `call` (func':args')
+                   
                      | otherwise         -> foldl1 (<|) (func':args')
           where
             aN = "A" ++ show (length args)
@@ -388,8 +390,7 @@ definition (Canonical.Definition annPattern expr@(A.A ann _) _) =
               vars = P.boundVarList annPattern
               mkVar = A.A ann . localVar
               toDef y =  
-                let
-                    expr = A.A ann $ Case (mkVar "_") [(annPattern, mkVar y)]
+                let expr = A.A ann $ Case (mkVar "_") [(annPattern, mkVar y)]
                     pat = A.A patternAnnot (P.Var y)
                 in
                     definition (Canonical.Definition pat expr Nothing)
