@@ -62,7 +62,7 @@ addDeclToDocs (A.A (region,maybeComment) decl) docs =
             )
 
           newValues =
-            Map.insert name (A.A region info) (rawValues docs)
+            Map.insert name (A.A (A.region subAnn) info) (rawValues docs)
         in
           docs { rawValues = newValues }
 
