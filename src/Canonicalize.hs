@@ -476,7 +476,7 @@ markTailCalls =
     markDef d@(Canonical.Definition lhs rhs tp) =
       case (lhs, rhs) of
         (A.A _ (P.Var fnName), fnExp@(A.A _ (E.Lambda _ _)) ) ->
-          case (tailCallsForFn fnName (argPats $ fnExp ) fnExp) of
+          case tailCallsForFn fnName (argPats $ fnExp ) fnExp of
             Nothing ->
               d
               
@@ -485,10 +485,10 @@ markTailCalls =
             
         _ -> d
   in
+    --We ignore expressions that aren't definitions
+    --and let mapExpr take care of applying this to each sub-expression of our module body
     ASTT.mapExpr $ \(A.A ann e) ->
       A.A ann $ case e of
-        --We ignore expressions that aren't Let
-        --mapExpr takes care of recursively traversing sub-expressions
         E.Let defs letBody -> 
           E.Let (map markDef defs) letBody
 
