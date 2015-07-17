@@ -2,8 +2,10 @@ module Benchmark
     ( Never
     , Benchmark
     , Suite (..)
+    , BenchStats
     , run
     , runWithProgress
+    , bench
     , bench1
     , bench2
     , bench3
@@ -18,13 +20,13 @@ module Benchmark
 of pure functions to be evaluated.
 
 # Error and Benchmark types
-@docs Never, Benchmark, Suite
+@docs Never, Benchmark, Suite, BenchStats
 
 # Running benchmarks
 @docs run, runWithProgress
 
 # Creating benchmarks
-@docs bench1, bench2, bench3, bench4, bench5, bench6, bench7, bench8, bench9
+@docs bench, bench1, bench2, bench3, bench4, bench5, bench6, bench7, bench8, bench9
 -}
 
 
@@ -50,6 +52,9 @@ type Benchmark =
     Benchmark
 
 
+{-|
+The results of running a benchmark
+|-}
 type BenchStats = 
   BenchStats 
   { name : String
@@ -71,7 +76,6 @@ type Suite =
 
 {-|
 Run a benchmark, generating a list of results for each benchmark
-and updating a String signal with progress as the benchmarks run
 |-}
 run : Suite -> Task.Task Never String
 run = runWithProgress Nothing
@@ -84,10 +88,16 @@ and updating a String signal with progress as the benchmarks run
 runWithProgress : Maybe (Signal.Mailbox String) -> Suite -> Task.Task Never String
 runWithProgress = Native.Benchmark.runWithProgress 
 
+{-|
+Create a benchmark with the given name
+running an arbitrary thunk
+|-}
+bench : String -> (() -> result) -> Benchmark
+bench = Native.Benchmark.makeBenchmark 
 
 
 {-|
-Functions for creating benchmarks with 1 to 9 arguments
+Functions for creating named benchmarks with 1 to 9 arguments
 |-}
 bench1 : String -> (a -> result) -> a -> Benchmark
 bench1 name f a = 

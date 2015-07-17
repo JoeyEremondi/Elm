@@ -6,17 +6,25 @@ import Text
 
 import LargeDictionary
 
+{-| Compile this with --output=Benchmarks.html to generate
+    a webpage, which runs the benchmarks and shows the results. 
+-}
+
+
 main =
  Signal.map (Graphics.Element.leftAligned << Text.fromString ) results.signal
+
 
 mySuite =
   Benchmark.Suite "My Suite" 
   [ Benchmark.bench1 "Make and sum large dictionary" LargeDictionary.addNToDictAndSum 1000
   ]
 
+
 results : Signal.Mailbox String
 results =
   Signal.mailbox "Benchmark loading"
+
 
 port benchResults : (Task Benchmark.Never ())
 port benchResults =
