@@ -13,6 +13,7 @@ Elm.Native.Benchmark.make = function(localRuntime) {
 	//var Maybe = Elm.Maybe.make(localRuntime);
 	var Task = Elm.Native.Task.make(localRuntime);
         var Signal = Elm.Signal.make(localRuntime);
+        var Utils = Elm.Native.Utils.make(localRuntime);
 
         function makeBenchmark(name, thunk)
         {
@@ -71,7 +72,7 @@ Elm.Native.Benchmark.make = function(localRuntime) {
                            Task.perform(A2(Signal.send, maybeMailbox._0.address, String(finalString)) );
                            finalString += String(event.target) + "\n";
                      }
-                   return callback(Task.succeed(retData));
+                   return callback(Task.succeed(Utils.Tuple2(finalString, retData)));
                 });
                 bjsSuite.run();
             } );

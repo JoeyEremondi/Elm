@@ -75,9 +75,11 @@ type Suite =
 
 
 {-|
-Run a benchmark, generating a list of results for each benchmark
+Run a benchmark, generating a list of results for each benchmark.
+Results contain a pretty-printed string summary, and a list
+of detailed data for each benchmark.
 |-}
-run : Suite -> Task.Task Never String
+run : Suite -> Task.Task Never (String, BenchStats)
 run = runWithProgress Nothing
 
 
@@ -85,7 +87,7 @@ run = runWithProgress Nothing
 Run a benchmark, generating a list of results for each benchmark
 and updating a String signal with progress as the benchmarks run
 |-}
-runWithProgress : Maybe (Signal.Mailbox String) -> Suite -> Task.Task Never String
+runWithProgress : Maybe (Signal.Mailbox String) -> Suite -> Task.Task Never (String, BenchStats)
 runWithProgress = Native.Benchmark.runWithProgress 
 
 {-|
