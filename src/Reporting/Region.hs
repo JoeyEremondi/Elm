@@ -10,14 +10,14 @@ data Region = Region
     { start :: Position
     , end :: Position
     }
-    deriving (Show)
+    deriving (Show, Eq, Ord)
 
 
 data Position = Position
     { line :: Int
     , column :: Int
     }
-    deriving (Show)
+    deriving (Show, Eq, Ord)
 
 
 fromSourcePos :: Parsec.SourcePos -> Position

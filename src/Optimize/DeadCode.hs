@@ -6,42 +6,45 @@ import qualified AST.Variable as Var
 import qualified AST.Pattern as Pat
 import qualified AST.Expression.Canonical as Canon
 import qualified Reporting.Annotation as A
+import qualified Reporting.Region as R
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-
 import qualified Data.Graph as G
+import qualified Data.Tree as Tree
+
 
 data RefNode =
   ExternalVar Var.Canonical
-  | InternalVar Var.Canonical Int
+  | InternalVar Var.Canonical (Int, R.Region)
   | ExprNode Int
-  deriving (Eq, Ord)
+    deriving (Show, Eq, Ord)
+
 
 
 type RefEdge = (RefNode, RefNode)
 
 
-type RefEnv = Map.Map Var.Canonical Int
+type RefEnv = Map.Map Var.Canonical (Int, R.Region)
 
 
 type RefGraph = Map.Map RefNode (Set.Set RefNode)
 
 
-patternVars :: Pat.CanonicalPattern -> [Var.Canonical]
-patternVars (A.A _ pat) =
+patternVars :: Pat.CanonicalPattern -> [(Var.Canonical, R.Region)]
+patternVars (A.A ann pat) =
   case pat of
     (Pat.Data _ args) ->
       concatMap patternVars args
 
     (Pat.Record vars) ->
-      map (Var.Canonical Var.Local) vars
+      map (\x -> (Var.Canonical Var.Local x, A.region ann)) vars
 
     (Pat.Alias v subPat) ->
-      [Var.Canonical Var.Local v] ++ patternVars subPat
+      [(Var.Canonical Var.Local v, A.region ann)] ++ patternVars subPat
 
     (Pat.Var v) ->
-      [Var.Canonical Var.Local v] 
+      [(Var.Canonical Var.Local v, A.region ann)] 
 
     Pat.Anything -> []
 
@@ -97,7 +100,9 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
     (Var v) ->
       case Var.home v of
         Var.Local ->
-          Map.fromList [(ExprNode currentDef, Set.singleton $ InternalVar v $ env Map.! v)]
+          Map.fromList
+            [(ExprNode currentDef,
+              Set.singleton $ InternalVar v $ env Map.! v)]
         Var.Module someMod | someMod == thisModule ->
           Map.fromList [(ExprNode currentDef, Set.singleton $ InternalVar v $ env Map.! v)]
         _ ->
@@ -114,7 +119,7 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
 
     (Lambda pat arg) ->
       let
-        newEnv = foldr (\v currentEnv -> Map.insert v (A.ident ann) currentEnv ) env $ patternVars pat
+        newEnv = foldr (\(v, reg) currentEnv -> Map.insert v (A.ident ann, reg) currentEnv ) env $ patternVars pat
       in
         makeRefGraph thisModule newEnv currentDef arg
 
@@ -126,10 +131,13 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
 
     (Let defs body) ->
       let
-        defPairs (Canon.Definition pat (A.A subAnn _) _ ) = [(v, A.ident subAnn) | v <- patternVars pat]
+        defPairs (Canon.Definition pat (A.A subAnn _) _ ) =
+          [(v, (A.ident subAnn, reg)) | (v, reg) <- patternVars pat]
         defExpr (Canon.Definition _ rhs _ ) = rhs
-        newEnv = foldr (\(v, ident) currentEnv -> Map.insert v ident currentEnv) env
-                 $ concatMap defPairs defs
+        newEnv =
+          foldr (\(v, ident) currentEnv ->
+                  Map.insert v ident currentEnv) env
+                (concatMap defPairs defs)
         defEdges = unionMap (\rhs@(A.A subAnn _ ) -> makeRefGraph thisModule newEnv (A.ident subAnn) rhs ) $ map defExpr defs
         bodyEdges = self body
       in
@@ -138,7 +146,9 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
     (Case cexp branches) ->
       let
         cexpEdges = self cexp
-        subEnv pat = (foldr (\ x currentEnv -> Map.insert x (A.ident ann) currentEnv ) env $
+        subEnv pat =
+          (foldr (\ (x, reg) currentEnv ->
+                   Map.insert x (A.ident ann, reg) currentEnv ) env $
                     patternVars pat )
         branchEdges (pat, bexpr) =
           makeRefGraph thisModule (subEnv pat) currentDef bexpr
@@ -176,6 +186,7 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
       Map.empty
       
   where self = makeRefGraph thisModule env currentDef
+
                
 moduleRefGraph
   :: [String]
@@ -185,10 +196,12 @@ moduleRefGraph thisModule e@(A.A ann (Let defs body)) =
   let
     edgeGraph =
       makeRefGraph thisModule Map.empty (A.ident ann) e
-    (nodes, sets) = unzip $ Map.toList edgeGraph
-    edgeLists = map Set.toList sets
-    graphAsList = zip3 nodes nodes edgeLists
-    (ggraph, getNode , getInt) = G.graphFromEdges graphAsList
-    newGetNode = \v -> case getNode v of
-      (node, _, edges ) -> (node, edges )
-  in (ggraph, newGetNode, getInt)
+    (nodes, sets) =
+      unzip $ Map.toList edgeGraph
+    edgeLists =
+      map Set.toList sets
+    graphAsList =
+      zip3 nodes nodes edgeLists
+    (ggraph, getNode , getInt) =
+      G.graphFromEdges graphAsList
+  in (ggraph, (\(x,_,z) -> (x,z) ) . getNode, getInt)
