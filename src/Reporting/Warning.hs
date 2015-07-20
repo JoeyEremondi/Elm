@@ -9,6 +9,7 @@ import Text.PrettyPrint ((<+>))
 
 import qualified AST.Module as Module
 import qualified AST.Type as Type
+import qualified AST.Variable as Var
 import qualified Reporting.Annotation as A
 import qualified Reporting.PrettyPrint as P
 import qualified Reporting.Report as Report
@@ -19,6 +20,7 @@ import qualified Reporting.Report as Report
 data Warning
     = UnusedImport Module.Name
     | MissingTypeAnnotation String Type.Canonical
+    | UnusedName Var.Canonical
 
 
 -- TO STRING
@@ -54,8 +56,15 @@ toReport dealiaser warning =
           P.hang
             (P.text name <+> P.colon)
             4
-            (P.pretty dealiaser False inferredType)
+           (P.pretty dealiaser False inferredType)
 
+    UnusedName v ->
+      Report.simple
+        "unused name "
+        ("The variable or function `" ++ (P.render $ P.pretty dealiaser False v ) ++ "` is defined here:" )
+        ("However, you never use this name, or it is only ever used to construct other unused values. "
+         ++ "If this is intentional, replace its definition with an underscore `_` "
+         ++ "to avoid future warnings.")
 
 -- TO JSON
 

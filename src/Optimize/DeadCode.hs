@@ -236,7 +236,7 @@ analyzeModule
   :: [String]
   -> Module.CanonicalModule
   -> ( Module.CanonicalModule
-     , [Warning.Warning]
+     , [A.Located Warning.Warning]
      , Map.Map Var.Canonical [Var.Canonical])
 analyzeModule modName modul =
   let
@@ -261,7 +261,7 @@ analyzeModule modName modul =
         (_, Nothing) -> False
         (InternalVar _ _, Just v) -> not $ Set.member v reachableNodes
 
-    makeWarning (InternalVar v (_, reg)) = error "TODO warnings"
+    makeWarning (InternalVar v (_, reg)) = A.A reg $ Warning.UnusedName v
 
     unusedWarnings = map makeWarning $ List.filter varIsUnused allNodes
 
