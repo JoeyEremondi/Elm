@@ -5,6 +5,7 @@ import AST.Expression.General
 import qualified AST.Variable as Var
 import qualified AST.Pattern as Pat
 import qualified AST.Module as Module
+import qualified AST.Traversals as ASTT
 import qualified AST.Expression.Canonical as Canon
 import qualified Reporting.Annotation as A
 import qualified Reporting.Region as R
@@ -21,7 +22,6 @@ import qualified Data.Tree as Tree
 
 import Control.Monad (forM, mapM, forM_)
 
-import Debug.Trace (trace)
 
 data RefNode =
     ExternalVar Var.Canonical
@@ -30,7 +30,6 @@ data RefNode =
   | DefNode Int
   | InitialNode
     deriving (Show, Eq, Ord)
-
 
 
 type RefEdge = (RefNode, RefNode)
@@ -83,8 +82,6 @@ graphUnion :: RefGraph -> RefGraph -> RefGraph
 graphUnion g h =
   foldr (\(node,edgeSet) currentGraph -> insertEdges node edgeSet currentGraph ) g $ Map.toList h
 
-
-graphUnions = foldr graphUnion Map.empty
 
 unionMap :: (a -> RefGraph) -> [a] -> RefGraph
 unionMap f inList =
@@ -291,7 +288,7 @@ moduleRefGraph thisModule e =
   let
     edgeGraph =
       traverseTopLevels thisModule Map.empty e
-    (nodes, sets) = trace ("The graph " ++ show edgeGraph ++ "\n" ) $
+    (nodes, sets) =
       unzip $ Map.toList edgeGraph
     edgeLists =
       map Set.toList sets
@@ -326,34 +323,68 @@ analyzeModule modul =
 
     varIsUnused vnode =
       case (vnode, getInt vnode) of
-        (InternalVar _ _, Just v) -> trace ("Maybe unused " ++ show vnode ++ " member? " ++ show (Set.member v reachableNodes )) $
+        (InternalVar _ _, Just v) -> 
           not $ Set.member v reachableNodes
-        _ -> trace ("Is used " ++ show vnode ) False
+        _ -> False
 
-    makeWarning (InternalVar v (_, reg)) = trace ("Making warning: " ++ show v) 
+    makeWarning (InternalVar v (_, reg)) =  
       (reg, Warning.UnusedName v)
 
-    unusedWarnings = trace ("UnReachable nodes " ++ show (List.filter varIsUnused allNodes ) ) 
+    unusedWarnings =  
       map makeWarning $ List.filter varIsUnused allNodes
 
     isExternalInt vi =
       case (fst $ getNode vi) of
         ExternalVar _ -> True
+
         _ -> False
 
     importRefsForNode vnode =
       case (getInt vnode) of
         Nothing -> [] --TODO this case should be impossible
+
         Just vi ->
           List.map ((\(ExternalVar v ) -> v ) . fst . getNode) $
             List.filter isExternalInt $ G.reachable ggraph vi
 
     importExportRefs =
-      Map.fromList $ List.map (\vnode@(InternalVar v _ ) -> (v, importRefsForNode vnode) ) exportedNodes
+      Map.fromList $ List.map (\vnode@(InternalVar v _ ) ->
+                                (v, importRefsForNode vnode) ) exportedNodes
 
-  in trace ("Num warnings " ++ show (length unusedWarnings) ) $
+    defIsReachable vnode =
+      case (vnode, getInt vnode) of
+        (ExprNode ident, Just varInt) ->
+          if Set.member varInt reachableNodes
+          then Just ident
+          else Nothing
+
+        _ ->
+          Nothing
+
+    reachableDefs =
+      Set.fromList $ Maybe.catMaybes $ map defIsReachable allNodes
+
+    newProgram =
+      ASTT.mapExpr (removeUnusedDefs reachableDefs) $ Module.program $ Module.body modul
+
+  in
     do  forM_ unusedWarnings (uncurry Result.warn)
-        return (modul, importExportRefs)
+        return $
+          ( modul {Module.body = (Module.body modul) {Module.program = newProgram } }
+          , importExportRefs)
 
 
 
+removeUnusedDefs
+  :: Set.Set Int
+  -> Canon.Expr
+  -> Canon.Expr
+removeUnusedDefs usedDefs e@(A.A ann expr) =
+  case expr of
+    Let defs body ->
+      let
+        isUsed (Canon.Definition _ (A.A subAnn _) _) =
+          Set.member (A.ident subAnn) usedDefs
+      in
+        A.A ann $ Let (filter isUsed defs) body
+    _ -> e
