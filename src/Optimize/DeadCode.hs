@@ -4,20 +4,25 @@ module Optimize.DeadCode where
 import AST.Expression.General
 import qualified AST.Variable as Var
 import qualified AST.Pattern as Pat
+import qualified AST.Module as Module
 import qualified AST.Expression.Canonical as Canon
 import qualified Reporting.Annotation as A
 import qualified Reporting.Region as R
+import qualified Reporting.Warning as Warning
 
 import qualified Data.Map as Map
+import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
+import qualified Data.List as List
 import qualified Data.Graph as G
 import qualified Data.Tree as Tree
 
 
 data RefNode =
-  ExternalVar Var.Canonical
+    ExternalVar Var.Canonical
   | InternalVar Var.Canonical (Int, R.Region)
   | ExprNode Int
+  | DefNode Int
     deriving (Show, Eq, Ord)
 
 
@@ -76,6 +81,10 @@ graphUnion g h =
 unionMap :: (a -> RefGraph) -> [a] -> RefGraph
 unionMap f inList =
   foldr graphUnion Map.empty $ map f inList
+
+
+exportedIdent :: Int
+exportedIdent = -99
 
 
 {- Constructing the refernce graph:
@@ -138,7 +147,14 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
           foldr (\(v, ident) currentEnv ->
                   Map.insert v ident currentEnv) env
                 (concatMap defPairs defs)
-        defEdges = unionMap (\rhs@(A.A subAnn _ ) -> makeRefGraph thisModule newEnv (A.ident subAnn) rhs ) $ map defExpr defs
+        defEdges =
+          unionMap (\rhs@(A.A subAnn _ ) ->
+                     makeRefGraph thisModule newEnv (A.ident subAnn) rhs )
+                   (map defExpr defs)
+        patToRHSEdges =
+          unionMap (\(v, (rhsId, reg )) ->
+                     Map.fromList [(InternalVar v (rhsId, reg ), Set.singleton $ DefNode rhsId)] )
+          (concatMap defPairs defs)
         bodyEdges = self body
       in
         defEdges `graphUnion` bodyEdges
@@ -187,7 +203,8 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
       
   where self = makeRefGraph thisModule env currentDef
 
-               
+
+--TODO: is ExportedIdent wrong?               
 moduleRefGraph
   :: [String]
   -> Canon.Expr
@@ -195,7 +212,7 @@ moduleRefGraph
 moduleRefGraph thisModule e@(A.A ann (Let defs body)) =
   let
     edgeGraph =
-      makeRefGraph thisModule Map.empty (A.ident ann) e
+      makeRefGraph thisModule Map.empty exportedIdent e
     (nodes, sets) =
       unzip $ Map.toList edgeGraph
     edgeLists =
@@ -205,3 +222,66 @@ moduleRefGraph thisModule e@(A.A ann (Let defs body)) =
     (ggraph, getNode , getInt) =
       G.graphFromEdges graphAsList
   in (ggraph, (\(x,_,z) -> (x,z) ) . getNode, getInt)
+
+
+isExported :: [Var.Value] -> RefNode -> Bool
+isExported exports node =
+  case node of
+    InternalVar (Var.Canonical Var.Local v ) (vid, _) | vid == exportedIdent ->
+      Var.Value v `elem` exports
+    _ -> False
+
+
+analyzeModule
+  :: [String]
+  -> Module.CanonicalModule
+  -> ( Module.CanonicalModule
+     , [Warning.Warning]
+     , Map.Map Var.Canonical [Var.Canonical])
+analyzeModule modName modul =
+  let
+    (ggraph, getNode, getInt ) =
+      moduleRefGraph modName $ Module.program $ Module.body modul
+
+    allNodes =
+      List.map (fst . getNode) $ G.vertices ggraph
+
+    exportedNodes =
+      List.filter (isExported (Module.exports modul)) allNodes
+
+    initialInts =
+      Maybe.catMaybes $ List.map getInt $ exportedNodes
+    --TODO: fast way to do this with arrays?
+
+    reachableNodes =
+      Set.fromList $ concatMap Tree.flatten $ G.dfs ggraph initialInts
+
+    varIsUnused vnode =
+      case (vnode, getInt vnode) of
+        (_, Nothing) -> False
+        (InternalVar _ _, Just v) -> not $ Set.member v reachableNodes
+
+    makeWarning (InternalVar v (_, reg)) = error "TODO warnings"
+
+    unusedWarnings = map makeWarning $ List.filter varIsUnused allNodes
+
+    isExternalInt vi =
+      case (fst $ getNode vi) of
+        ExternalVar v -> True
+        _ -> False
+
+    importRefsForNode vnode =
+      case (getInt vnode) of
+        Nothing -> [] --TODO this case should be impossible
+        Just vi ->
+          List.map ((\(ExternalVar v ) -> v ) . fst . getNode) $
+            List.filter isExternalInt $ G.reachable ggraph vi
+
+    importExportRefs =
+      Map.fromList $ List.map (\vnode@(InternalVar v _ ) -> (v, importRefsForNode vnode) ) exportedNodes
+
+  in
+    (modul, unusedWarnings, importExportRefs)
+
+
+
