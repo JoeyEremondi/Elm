@@ -9,6 +9,8 @@ import qualified AST.Expression.Canonical as Canon
 import qualified Reporting.Annotation as A
 import qualified Reporting.Region as R
 import qualified Reporting.Warning as Warning
+import qualified Reporting.Result as Result
+import qualified Reporting.Error as Error
 
 import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
@@ -17,12 +19,16 @@ import qualified Data.List as List
 import qualified Data.Graph as G
 import qualified Data.Tree as Tree
 
+import Control.Monad (forM, mapM, forM_)
+
+import Debug.Trace (trace)
 
 data RefNode =
     ExternalVar Var.Canonical
   | InternalVar Var.Canonical (Int, R.Region)
   | ExprNode Int
   | DefNode Int
+  | InitialNode
     deriving (Show, Eq, Ord)
 
 
@@ -78,13 +84,16 @@ graphUnion g h =
   foldr (\(node,edgeSet) currentGraph -> insertEdges node edgeSet currentGraph ) g $ Map.toList h
 
 
+graphUnions = foldr graphUnion Map.empty
+
 unionMap :: (a -> RefGraph) -> [a] -> RefGraph
 unionMap f inList =
   foldr graphUnion Map.empty $ map f inList
 
 
-exportedIdent :: Int
-exportedIdent = -99
+
+insertNode :: RefNode -> RefGraph
+insertNode n = Map.fromList [(n, Set.empty)]
 
 
 {- Constructing the refernce graph:
@@ -100,7 +109,7 @@ For case statements, we treat the variables defined by matching as dead-ends,
 and assume that every variable in the expression being matched
 is referenced by the body of each branch of the case statement.
 -}
-makeRefGraph :: [String] -> RefEnv -> Int -> Canon.Expr -> RefGraph
+makeRefGraph :: Module.Name -> RefEnv -> Int -> Canon.Expr -> RefGraph
 makeRefGraph thisModule env currentDef (A.A ann expr) =
   case expr of
     (Literal _) ->
@@ -128,9 +137,16 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
 
     (Lambda pat arg) ->
       let
-        newEnv = foldr (\(v, reg) currentEnv -> Map.insert v (A.ident ann, reg) currentEnv ) env $ patternVars pat
+        newEnv =
+          foldr (\(v, reg) currentEnv -> Map.insert v (A.ident ann, reg) currentEnv )
+            env $ patternVars pat
+        patPairs =
+          [(v, (A.ident ann, reg)) | (v,reg) <- patternVars pat ]
+        insertVarsGraph =
+          unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) $ patPairs
       in
-        makeRefGraph thisModule newEnv currentDef arg
+        (makeRefGraph thisModule newEnv currentDef arg)
+        `graphUnion` insertVarsGraph
 
     (App sub1 sub2) ->
       self sub1 `graphUnion` self sub2
@@ -155,21 +171,37 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
           unionMap (\(v, (rhsId, reg )) ->
                      Map.fromList [(InternalVar v (rhsId, reg ), Set.singleton $ DefNode rhsId)] )
           (concatMap defPairs defs)
+        insertRHSGraph =
+          insertNode $ DefNode (A.ident ann)
+        insertVarsGraph =
+          unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) $ concatMap defPairs defs
         bodyEdges = self body
       in
-        defEdges `graphUnion` bodyEdges
+        defEdges
+        `graphUnion` bodyEdges
+        `graphUnion` patToRHSEdges
+        `graphUnion` insertRHSGraph
+        `graphUnion` insertVarsGraph
+        
 
     (Case cexp branches) ->
       let
         cexpEdges = self cexp
+        patPairs =
+          concatMap (\(pat, _) -> [(v, (A.ident ann, reg)) | (v,reg) <- patternVars pat ] ) branches
         subEnv pat =
           (foldr (\ (x, reg) currentEnv ->
                    Map.insert x (A.ident ann, reg) currentEnv ) env $
                     patternVars pat )
         branchEdges (pat, bexpr) =
           makeRefGraph thisModule (subEnv pat) currentDef bexpr
+        insertVarsGraph =
+          unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) $ patPairs
+          
       in
-       cexpEdges `graphUnion` (unionMap branchEdges branches)
+       cexpEdges
+       `graphUnion` (unionMap branchEdges branches)
+       `graphUnion` insertVarsGraph
 
     (Data _ctor args) ->
       unionMap self args
@@ -204,16 +236,62 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
   where self = makeRefGraph thisModule env currentDef
 
 
+traverseTopLevels
+ :: Module.Name
+ -> RefEnv
+ -> Canon.Expr
+ -> RefGraph
+traverseTopLevels thisModule env (A.A ann e) =
+  case e of
+    Var (Var.Canonical Var.BuiltIn nm) | nm == saveEnvName ->
+      Map.empty
+    Let defs body ->
+      let
+        makeDefPairs (Canon.Definition pat (A.A subAnn _) _ ) =
+          [(v, (A.ident subAnn, reg)) | (v, reg) <- patternVars pat]
+        defPairs =
+          concatMap makeDefPairs defs
+        defBodies =
+          map (\(Canon.Definition _ rhs@(A.A subAnn _) _ ) -> (rhs, A.ident subAnn) ) defs 
+        initialEnv =
+          List.foldr (\(v, pr ) currentEnv -> Map.insert v pr currentEnv  ) env defPairs
+        bodyGraph =
+          traverseTopLevels thisModule initialEnv body
+        defGraphs =
+          unionMap (\(bdy,ident) -> makeRefGraph thisModule initialEnv ident bdy) defBodies
+        --Edges from our initial node to exported names
+        initialEdges =
+          unionMap
+            (\(v, pr) ->
+              Map.insert InitialNode (Set.singleton $ InternalVar v pr) Map.empty )
+            defPairs
+        --Edges from each defined name to the expression defining its value
+        nameEdges =
+          unionMap
+            (\(v, (ident, reg)) ->
+              Map.insert (InternalVar v (ident, reg) ) (Set.singleton $ ExprNode ident) Map.empty )
+            defPairs 
+      in
+        defGraphs
+        `graphUnion`
+        bodyGraph
+        `graphUnion`
+        initialEdges
+        `graphUnion`
+        insertNode InitialNode
+        `graphUnion`
+        nameEdges
+
 --TODO: is ExportedIdent wrong?               
 moduleRefGraph
-  :: [String]
+  :: Module.Name
   -> Canon.Expr
   -> (G.Graph, G.Vertex -> (RefNode, [RefNode]), RefNode -> Maybe G.Vertex)
-moduleRefGraph thisModule e@(A.A ann (Let defs body)) =
+moduleRefGraph thisModule e =
   let
     edgeGraph =
-      makeRefGraph thisModule Map.empty exportedIdent e
-    (nodes, sets) =
+      traverseTopLevels thisModule Map.empty e
+    (nodes, sets) = trace ("The graph " ++ show edgeGraph ++ "\n" ) $
       unzip $ Map.toList edgeGraph
     edgeLists =
       map Set.toList sets
@@ -224,50 +302,43 @@ moduleRefGraph thisModule e@(A.A ann (Let defs body)) =
   in (ggraph, (\(x,_,z) -> (x,z) ) . getNode, getInt)
 
 
-isExported :: [Var.Value] -> RefNode -> Bool
-isExported exports node =
-  case node of
-    InternalVar (Var.Canonical Var.Local v ) (vid, _) | vid == exportedIdent ->
-      Var.Value v `elem` exports
-    _ -> False
-
 
 analyzeModule
-  :: [String]
-  -> Module.CanonicalModule
-  -> ( Module.CanonicalModule
-     , [A.Located Warning.Warning]
-     , Map.Map Var.Canonical [Var.Canonical])
-analyzeModule modName modul =
+  :: Module.CanonicalModule
+  -> Result.Result Warning.Warning Error.Error
+      ( Module.CanonicalModule, Map.Map Var.Canonical [Var.Canonical])
+analyzeModule modul = 
   let
     (ggraph, getNode, getInt ) =
-      moduleRefGraph modName $ Module.program $ Module.body modul
+      moduleRefGraph (Module.names modul) $ Module.program $ Module.body modul
 
-    allNodes =
+    allNodes = 
       List.map (fst . getNode) $ G.vertices ggraph
 
-    exportedNodes =
-      List.filter (isExported (Module.exports modul)) allNodes
-
-    initialInts =
+    exportedNodes = [InitialNode]
+    
+    initialInts = 
       Maybe.catMaybes $ List.map getInt $ exportedNodes
     --TODO: fast way to do this with arrays?
 
-    reachableNodes =
+    reachableNodes = 
       Set.fromList $ concatMap Tree.flatten $ G.dfs ggraph initialInts
 
     varIsUnused vnode =
       case (vnode, getInt vnode) of
-        (_, Nothing) -> False
-        (InternalVar _ _, Just v) -> not $ Set.member v reachableNodes
+        (InternalVar _ _, Just v) -> trace ("Maybe unused " ++ show vnode ++ " member? " ++ show (Set.member v reachableNodes )) $
+          not $ Set.member v reachableNodes
+        _ -> trace ("Is used " ++ show vnode ) False
 
-    makeWarning (InternalVar v (_, reg)) = A.A reg $ Warning.UnusedName v
+    makeWarning (InternalVar v (_, reg)) = trace ("Making warning: " ++ show v) 
+      (reg, Warning.UnusedName v)
 
-    unusedWarnings = map makeWarning $ List.filter varIsUnused allNodes
+    unusedWarnings = trace ("UnReachable nodes " ++ show (List.filter varIsUnused allNodes ) ) 
+      map makeWarning $ List.filter varIsUnused allNodes
 
     isExternalInt vi =
       case (fst $ getNode vi) of
-        ExternalVar v -> True
+        ExternalVar _ -> True
         _ -> False
 
     importRefsForNode vnode =
@@ -280,8 +351,9 @@ analyzeModule modName modul =
     importExportRefs =
       Map.fromList $ List.map (\vnode@(InternalVar v _ ) -> (v, importRefsForNode vnode) ) exportedNodes
 
-  in
-    (modul, unusedWarnings, importExportRefs)
+  in trace ("Num warnings " ++ show (length unusedWarnings) ) $
+    do  forM_ unusedWarnings (uncurry Result.warn)
+        return (modul, importExportRefs)
 
 
 

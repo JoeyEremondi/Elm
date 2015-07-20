@@ -1,4 +1,4 @@
-module Optimize.Ident where
+module Optimize.Ident  where
 
 import qualified AST.Traversals as ASTT
 import qualified AST.Expression.Canonical as Canon
@@ -14,4 +14,4 @@ addUniqueIds ex =
         currentId <- State.get
         State.put (currentId + 1)
         return $ A.A (ann {A.ident = currentId}) e
-  in State.evalState (ASTT.mapMExpr applyId ex) 1 
+  in State.evalState (ASTT.mapMExpr applyId ex) 1

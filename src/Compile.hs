@@ -12,6 +12,8 @@ import qualified Reporting.Error as Error
 import qualified Reporting.Result as Result
 import qualified Reporting.Warning as Warning
 import qualified Type.Inference as TI
+import qualified Optimize.DeadCode as DeadCode
+import qualified Optimize.Ident as Ident
 
 
 compile
@@ -48,9 +50,15 @@ compile user projectName isRoot interfaces source =
         Nitpick.topLevelTypes types (Module.body validModule)
 
       -- Add the real list of types
-      let body = (Module.body canonicalModule) { Module.types = types }
+      let canonicalBody = (Module.body canonicalModule) { Module.types = types }
 
-      return $ canonicalModule { Module.body = body }
+      let annotatedBody =
+            canonicalBody { Module.program = Ident.addUniqueIds $ Module.program canonicalBody}
+
+      (deadCodeRemovedModul, _) <- DeadCode.analyzeModule $
+        canonicalModule { Module.body = annotatedBody }
+
+      return $ deadCodeRemovedModul
 
 
 getOpTable :: Module.Interfaces -> Parse.OpTable
