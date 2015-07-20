@@ -177,3 +177,18 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
       
   where self = makeRefGraph thisModule env currentDef
                
+moduleRefGraph
+  :: [String]
+  -> Canon.Expr
+  -> (G.Graph, G.Vertex -> (RefNode, [RefNode]), RefNode -> Maybe G.Vertex)
+moduleRefGraph thisModule e@(A.A ann (Let defs body)) =
+  let
+    edgeGraph =
+      makeRefGraph thisModule Map.empty (A.ident ann) e
+    (nodes, sets) = unzip $ Map.toList edgeGraph
+    edgeLists = map Set.toList sets
+    graphAsList = zip3 nodes nodes edgeLists
+    (ggraph, getNode , getInt) = G.graphFromEdges graphAsList
+    newGetNode = \v -> case getNode v of
+      (node, _, edges ) -> (node, edges )
+  in (ggraph, newGetNode, getInt)
