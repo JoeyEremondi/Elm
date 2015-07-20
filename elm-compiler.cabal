@@ -90,6 +90,8 @@ Library
         Parse.Parse,
         Parse.Pattern,
         Parse.Type,
+        Optimize.Ident,
+        Optimize.DeadCode,
         Reporting.Annotation,
         Reporting.Error,
         Reporting.Error.Canonicalize,

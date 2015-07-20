@@ -66,6 +66,7 @@ data ExprMetaData = ExprMetaData
   { region :: R.Region
   , isTailCallWithArgs :: Maybe (String, [JS.Expression () -> [(String, JS.Expression ())]])
   , hasTailCall :: Maybe String
+  , ident :: Int
   }
 
 
@@ -80,6 +81,7 @@ defaultMetaData reg =
   { region = reg --Where in the source code is this expression?
   , isTailCallWithArgs = Nothing --Is this expression a function containing tail calls?
   , hasTailCall = Nothing --Is this expression a call in tail-position?
+  , ident = error "Should not access ident before assigning"
   }
 
 
