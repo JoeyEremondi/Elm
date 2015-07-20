@@ -35,6 +35,7 @@ import String
 import Native.Benchmark
 import Native.BenchmarkJS
 import Signal
+import Time
 
 
 {-|
@@ -88,7 +89,18 @@ Run a benchmark, generating a list of results for each benchmark
 and updating a String signal with progress as the benchmarks run
 |-}
 runWithProgress : Maybe (Signal.Mailbox String) -> Suite -> Task.Task Never (String, BenchStats)
-runWithProgress = Native.Benchmark.runWithProgress 
+runWithProgress maybeMailbox suite = 
+  let
+    ourTask = 
+      case maybeMailbox of
+        Nothing -> \_ -> Task.sleep 0
+        Just mailbox -> 
+          \s ->
+            (Signal.send mailbox.address s
+            `Task.andThen` \_ -> Task.sleep (5*Time.second))
+          -- `Task.andThen` \_ -> Task.keepGoing
+  in
+    Native.Benchmark.runWithProgress ourTask suite 
 
 {-|
 Create a benchmark with the given name

@@ -21,7 +21,7 @@ Elm.Native.Benchmark.make = function(localRuntime) {
         }
 
 
-	function runWithProgress(maybeMailbox, inSuite)
+	function runWithProgress(maybeTaskFn, inSuite)
 	{
             
 	    return Task.asyncFunction(function(callback) {
@@ -29,7 +29,7 @@ Elm.Native.Benchmark.make = function(localRuntime) {
                 var benchArray;
                 var retData = [];
                 var finalString = "";
-                Task.perform(A2(Signal.send, maybeMailbox._0.address, String("Starting benchmarks")) );
+                Task.perform(maybeTaskFn("Starting Benchmarks"));
                 switch (inSuite.ctor)
                 {
                     case "Suite":
@@ -51,36 +51,28 @@ Elm.Native.Benchmark.make = function(localRuntime) {
                        , moePercent : event.target.stats.rme
                        }
                        );
-                   switch (maybeMailbox.ctor)
-                     {
-                         case "Nothing":
-                           break;
-                         case "Just":
-                           console.log("Just " + String(event.target.count));
-                           Task.perform(A2(Signal.send, maybeMailbox._0.address, String(event.target)) );
-                           finalString += String(event.target) + "\n";
-                           break;
-                     }
+                   finalString += String(event.target) + "\n";
+                   console.log("Progress ");
+                   var intermedString = String(event.target);
+                   Task.perform(maybeTaskFn(intermedString));
                    //retString += String(event.target) + "\n";
                 });
                 bjsSuite.on('complete', function(event) {
-                   switch (maybeMailbox.ctor)
-                     {
-                         case "Nothing":
-                           break;
-                         case "Just":
-                           Task.perform(A2(Signal.send, maybeMailbox._0.address, String(finalString)) );
-                           finalString += String(event.target) + "\n";
-                     }
+                   finalString = "Final results:\n\n" + finalString;
+                   Task.perform(maybeTaskFn(finalString) );
                    return callback(Task.succeed(Utils.Tuple2(finalString, retData)));
                 });
-                bjsSuite.run();
-            } );
-        }
-             
+                Task.perform(
+                  Task.asyncFunction(function(otherCallback){
+                      bjsSuite.run();
+                  }));
+        });
+             }
 
 	return localRuntime.Native.Benchmark.values = {
 		makeBenchmark: F2(makeBenchmark),
 		runWithProgress: F2(runWithProgress)
 	};
+                
+   
 };
