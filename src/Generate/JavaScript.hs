@@ -242,7 +242,7 @@ exprToCode annotatedExpr@(A.A _ expr) =
 
 -- FUNCTIONS
 
-generateFunction :: ([P.Optimized], Opt.Expr) -> State Int Code
+generateFunction :: ([Opt.OptPattern], Opt.Expr) -> State Int Code
 generateFunction (args, initialBody) =
   do  (argVars, patternDefs) <- destructuredArgs args
       code <- generateLet patternDefs initialBody
@@ -267,13 +267,13 @@ generateFunctionWithArity args code =
               foldl (\body arg -> function [arg] [ret body]) innerBody otherArgs
 
 
-destructuredArgs :: [P.Optimized] -> State Int ([String], [Opt.Def])
+destructuredArgs :: [Opt.OptPattern] -> State Int ([String], [Opt.Def])
 destructuredArgs args =
   do  (argVars, maybePatternDefs) <- unzip <$> mapM destructPattern args
       return (argVars, Maybe.catMaybes maybePatternDefs)
 
 
-destructPattern :: P.Optimized -> State Int (String, Maybe Opt.Def)
+destructPattern :: Opt.OptPattern -> State Int (String, Maybe Opt.Def)
 destructPattern pattern@(A.A ann pat) =
   case pat of
     P.Var x ->
@@ -380,7 +380,7 @@ defToStatements (Opt.Definition facts pattern expr) =
 
 defToStatementsHelp
     :: Opt.Facts
-    -> P.Optimized
+    -> Opt.OptPattern
     -> Expression ()
     -> State Int [Statement ()]
 defToStatementsHelp facts annPattern@(A.A _ pattern) jsExpr =
@@ -432,17 +432,17 @@ defToStatementsHelp facts annPattern@(A.A _ pattern) jsExpr =
             return (VarDeclStmt () [define "_"] : defs')
         where
           vars = P.boundVarList annPattern
-          mkVar = A.A () . localVar
+          mkVar = A.A Opt.dummyExprFacts . localVar
           toDef y =
-            let expr = A.A () $ Case (mkVar "_") [(annPattern, mkVar y)]
-                pat = A.A () (P.Var y)
+            let expr = A.A Opt.dummyExprFacts $ Case (mkVar "_") [(annPattern, mkVar y)]
+                pat = A.A Opt.dummyExprFacts (P.Var y)
             in
                 defToStatements (Opt.Definition facts pat expr)
 
 
 -- CASE EXPRESSIONS
 
-generateCase :: Opt.Expr -> [(P.Optimized, Opt.Expr)] -> State Int Code
+generateCase :: Opt.Expr -> [(Opt.OptPattern, Opt.Expr)] -> State Int Code
 generateCase expr branches =
   do  (tempVar, initialMatch) <-
           Case.toMatch branches
@@ -627,7 +627,7 @@ binop
     -> State Int Code
 binop func left right
   | func == Var.Canonical Var.BuiltIn "::" =
-      exprToCode (A.A () (Data "::" [left,right]))
+      exprToCode (A.A Opt.dummyExprFacts (Data "::" [left,right]))
 
   | func == forwardCompose =
       compose (collectLeftAssoc forwardCompose left right)
