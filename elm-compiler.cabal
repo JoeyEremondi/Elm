@@ -84,6 +84,7 @@ Library
         Optimize.Cases,
         Optimize.Substitute,
         Optimize.TailCalls,
+        Optimize.DeadCode,
         Parse.Binop,
         Parse.Declaration,
         Parse.Expression,
