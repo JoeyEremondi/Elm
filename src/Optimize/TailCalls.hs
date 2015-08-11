@@ -13,6 +13,8 @@ import qualified AST.Pattern as P
 import qualified AST.Variable as Var
 import qualified Reporting.Annotation as A
 
+import qualified AST.Expression.Optimized as Opt
+
 
 -- OPTIMIZE FOR TAIL CALLS
 
@@ -70,7 +72,7 @@ detectTailRecursion (Can.Definition pattern expression _) =
             findTailCalls context body
     in
         Opt.Definition
-          (Opt.Facts (if isTailCall then context else Nothing))
+          (Opt.dummyFacts { Opt.tailRecursionDetails = if isTailCall then context else Nothing})
           (removeAnnotations pattern)
           optExpr
 
@@ -93,7 +95,7 @@ findTailCalls context annExpr@(A.A _ expression) =
       -- this will never find tail calls, use this when you are working with
       -- expressions that cannot be turned into tail calls
   in
-  A.A () <$>
+  A.A Opt.dummyExprFacts <$>
   case expression of
     Literal lit ->
         pure (Literal lit)
@@ -137,7 +139,7 @@ findTailCalls context annExpr@(A.A _ expression) =
                 T.traverse justConvert args
 
             apply f arg =
-                App (A.A () f) arg
+                App (A.A Opt.dummyExprFacts f) arg
         in
             Result isTailCall (List.foldl' apply optFunc optArgs)
 
@@ -213,9 +215,9 @@ findTailCalls context annExpr@(A.A _ expression) =
         pure (Crash details)
 
 
-removeAnnotations :: P.CanonicalPattern -> P.Optimized
+removeAnnotations :: P.CanonicalPattern -> Opt.OptPattern
 removeAnnotations (A.A _ pattern) =
-  A.A () $
+  A.A Opt.dummyExprFacts $
     case pattern of
       P.Var x ->
           P.Var x

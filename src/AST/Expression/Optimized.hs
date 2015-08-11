@@ -3,7 +3,8 @@ module AST.Expression.Optimized
     ( Expr, Expr'
     , Def(..)
     , Facts(..), dummyFacts
-    , ExprFacts(..)
+    , ExprFacts(..), dummyExprFacts
+    , OptPattern
     ) where
 
 import qualified AST.Expression.General as General
@@ -48,3 +49,6 @@ dummyFacts =
     { tailRecursionDetails = Nothing
     , defIdent = error "Should not access uninitialized id"
     , defRegion = error "Should not access initial region" }
+
+dummyExprFacts :: ExprFacts
+dummyExprFacts = error "TODO dummy expr facts"
