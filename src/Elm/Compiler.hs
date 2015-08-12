@@ -230,4 +230,8 @@ cleanObject
   -> Object
   -> Object
 cleanObject usedVars obj =
-  obj
+  let
+    (PublicModule.Name ourName ) = _objModule obj
+    isUsed (defName, _) = Set.member (Var.Canonical (Var.Module ourName) defName) usedVars
+  in
+    obj {_fnDefs = filter isUsed $ _fnDefs obj}
