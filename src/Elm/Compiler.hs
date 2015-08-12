@@ -96,7 +96,7 @@ compile context source interfaces =
           let interface = Module.toInterface modul
           let optModule = Optimize.optimize modul
           (dceModul , dceInfo) <- DCE.analyzeModule optModule
-          let (topHeader, fnHeader, fnDefs, fnFooter ) = JS.generate optModule
+          let (topHeader, fnHeader, fnDefs, fnFooter, modulName ) = JS.generate optModule
 
           return (Result docs interface $
                   Object
@@ -104,7 +104,8 @@ compile context source interfaces =
                     , _fnHeader = fnHeader
                     , _fnDefs = fnDefs
                     , _fnFooter = fnFooter
-                    , _fnRefGraph = dceInfo})
+                    , _fnRefGraph = dceInfo
+                    , _objModule = PublicModule.Name modulName})
   in
     ( maybe dummyDealiaser Dealiaser dealiaser
     , map Warning warnings
@@ -132,6 +133,7 @@ data Object = Object
     , _fnFooter :: Text.Text
     , _fnDefs :: [(String, Text.Text )]
     , _fnRefGraph :: [(Var.Canonical, [Var.Canonical])]
+    , _objModule :: PublicModule.Name 
     } deriving (Show, Read)
 
 
@@ -207,23 +209,25 @@ warningToJson (Dealiaser dealiaser) location (Warning err) =
 
 
 getUsedDefs
-  :: [[(Var.Canonical, [Var.Canonical])]]
-  -> [PublicModule.Interface]
+  :: [(PublicModule.Name, [(Var.Canonical, [Var.Canonical])])]
+  -> [(PublicModule.Name, PublicModule.Interface)]
   -> Set.Set Var.Canonical
 getUsedDefs refGraphs startIfaces =
   let
     exports =
-      concatMap Module.iExports startIfaces
-    unValue v =
+      [(nm, exprt) | (PublicModule.Name nm, iface ) <- startIfaces, exprt <- Module.iExports iface]
+    unValue (nm, v) =
       case v of
-        Var.Value s -> Just $ Var.Canonical (Var.Module [error "TODO what module name?"] ) s
+        Var.Value s -> Just $ Var.Canonical (Var.Module nm ) s
         _ -> Nothing
-    stringValues = Maybe.catMaybes $ map unValue exports 
+    stringValues = Maybe.catMaybes $ map unValue exports
+    nameGraphs = map (\(PublicModule.Name nm, x) -> (nm, x) ) refGraphs
   in
-    Set.fromList $ DCE.reachableImports refGraphs stringValues
+    Set.fromList $ DCE.reachableImports nameGraphs stringValues
 
 cleanObject
   :: Set.Set Var.Canonical
   -> Object
   -> Object
-cleanObject usedVars o = o --TODO actually clean up the object
+cleanObject usedVars obj =
+  obj

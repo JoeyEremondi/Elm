@@ -393,22 +393,40 @@ removeUnusedDefs usedDefs e@(A.A ann expr) =
 
 
 reachableImports
-  :: [[(Var.Canonical, [Var.Canonical])]]
+  :: [([String], [(Var.Canonical, [Var.Canonical])])]
   -> [Var.Canonical]
   -> [Var.Canonical]
 reachableImports inputGraphs exposedNames =
   let
-    initialNode = Var.Canonical Var.BuiltIn "--InitialNode"
+    fixName modName var =
+      case var of
+        Var.Canonical Var.Local nm ->
+          Var.Canonical (Var.Module modName ) nm
+
+        _ ->
+          var
+    
+    initialNode =
+      Var.Canonical Var.BuiltIn "--InitialNode"
+
     initialEdges =
       [(initialNode, initialNode, exposedNames )]
+
+    graphEdges =
+      do  (modulNames, edgeList) <- inputGraphs
+          (inNode, outNodes) <- edgeList
+          let fixedInNode = fixName modulNames inNode
+              fixedOutNodes = map (fixName modulNames) outNodes
+          return $ (fixedInNode, fixedInNode, fixedOutNodes)
+
     (moduleGraph, vertFn, keyFn ) =
-       G.graphFromEdges $
-         [ (inNode, inNode, outNodes) |
-           edgeList <- inputGraphs
-         , (inNode, outNodes) <- edgeList
-         ] ++ initialEdges
+         G.graphFromEdges $ initialEdges ++ graphEdges
+         
+
     initialNodes = map (Maybe.fromJust . keyFn) exposedNames
+
     reachableNodes =
       G.reachable moduleGraph (Maybe.fromJust $ keyFn initialNode)
+      
   in
     List.filter (/= initialNode) $ map ((\(x,y,z) -> x ) . vertFn) reachableNodes
