@@ -1,3 +1,4 @@
+
 module Optimize.DeadCode where
 
 import AST.Expression.General
@@ -304,7 +305,7 @@ moduleRefGraph thisModule e =
 analyzeModule
   :: Module.Optimized
   -> Result.Result Warning.Warning Error.Error
-      ( Module.CanonicalModule, Map.Map Var.Canonical [Var.Canonical])
+      ( Module.CanonicalModule, [(Var.Canonical, [Var.Canonical])])
 analyzeModule modul = 
   let
     (ggraph, getNode, getInt ) =
@@ -372,7 +373,7 @@ analyzeModule modul =
     do  forM_ unusedWarnings (uncurry Result.warn)
         return $
           ( modul {Module.body = (Module.body modul) {Module.program = newProgram } }
-          , importExportRefs)
+          , _importExportRefs)
 
 
 
@@ -389,3 +390,25 @@ removeUnusedDefs usedDefs e@(A.A ann expr) =
       in
         A.A ann $ Let (filter isUsed defs) body
     _ -> e
+
+
+reachableImports
+  :: [(String, [(Var.Canonical, [Var.Canonical])] )]
+  -> [Var.Canonical]
+  -> [Var.Canonical]
+reachableImports inputGraphs exposedNames =
+  let
+    initialNode = Var.Canonical Var.BuiltIn "--InitialNode"
+    initialEdges =
+      [(initialNode, initialNode, exposedNames )]
+    (moduleGraph, vertFn, keyFn ) =
+       G.graphFromEdges $
+         [ (inNode, inNode, outNodes) |
+           (moduleName, edgeList ) <- inputGraphs
+         , (inNode, outNodes) <- edgeList
+         ] ++ initialEdges
+    initialNodes = map (Maybe.fromJust . keyFn) exposedNames
+    reachableNodes =
+      G.reachable moduleGraph (Maybe.fromJust $ keyFn initialNode)
+  in
+    List.filter (/= initialNode) $ map ((\(x,y,z) -> x ) . vertFn) reachableNodes

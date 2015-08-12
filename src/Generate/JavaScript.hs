@@ -27,6 +27,7 @@ import qualified Optimize.Cases as Case
 import qualified Reporting.Annotation as A
 import qualified Reporting.Crash as Crash
 
+import qualified Data.Text as Text
 
 internalImports :: Module.Name -> [VarDecl ()]
 internalImports name =
@@ -368,6 +369,18 @@ crushIfsHelp visitedBranches unvisitedBranches finally =
 
 -- DEFINITIONS
 
+--TODO safe to assume always a single name?
+topLevelDefToStatements :: Opt.Def -> State Int (String, [Statement ()])
+topLevelDefToStatements (Opt.Definition facts pattern@(A.A _ (P.Var nm)) expr) =
+    case Opt.tailRecursionDetails facts of
+      Just (name, arity) ->
+          error "TODO" name arity
+
+      Nothing -> do --TODO fix formatting
+          retJS <- (defToStatementsHelp facts pattern =<< exprToJsExpr expr)
+          return (nm, retJS )
+
+
 defToStatements :: Opt.Def -> State Int [Statement ()]
 defToStatements (Opt.Definition facts pattern expr) =
     case Opt.tailRecursionDetails facts of
@@ -532,10 +545,14 @@ flattenLets defs lexpr@(A.A _ expr) =
       _ -> (defs, lexpr)
 
 
-generate :: Module.Optimized -> String
+generate :: Module.Optimized -> (Text.Text, Text.Text, [(String, Text.Text)], Text.Text)
 generate modul =
-    show . prettyPrint $ setup "Elm" (names ++ ["make"]) ++
-             [ assign ("Elm" : names ++ ["make"]) (function [localRuntime] programStmts) ]
+  ( (Text.pack . show . prettyPrint) $ setup "Elm" (names ++ ["make"])
+  , (Text.pack . show . prettyPrint) $ headerStmts
+  , map (\(nm, js) -> (nm, (Text.pack . show . prettyPrint) js)) $ bodyDefs
+  , (Text.pack . show . prettyPrint) footerStmts)
+    --show . prettyPrint $ setup "Elm" (names ++ ["make"]) ++
+    --         [ assign ("Elm" : names ++ ["make"]) (function [localRuntime] programStmts) ]
   where
     names :: [String]
     names = Module.names modul
@@ -543,17 +560,16 @@ generate modul =
     thisModule :: Expression ()
     thisModule = obj (localRuntime : names ++ ["values"])
 
-    programStmts :: [Statement ()]
-    programStmts =
-        concat
+    headerStmts =
+      concat
         [ [ ExprStmt () (string "use strict") ]
         , setup localRuntime (names ++ ["values"])
         , [ IfSingleStmt () thisModule (ret thisModule) ]
         , [ VarDeclStmt () localVars ]
-        , body
-        , [ jsExports ]
-        , [ ret thisModule ]
         ]
+
+    footerStmts =
+      [jsExports, ret thisModule ]
 
     localVars :: [VarDecl ()]
     localVars =
@@ -573,15 +589,15 @@ generate modul =
             varDecl (Var.moduleName name) $
                 obj ("Elm" : name ++ ["make"]) <| ref localRuntime
 
-    body :: [Statement ()]
-    body =
-        concat (evalState defs 0)
+    bodyDefs :: [(String, [Statement ()])]
+    bodyDefs =
+        (evalState defs 0)
       where
         defs =
             Module.program (Module.body modul)
               |> flattenLets []
               |> fst
-              |> mapM defToStatements
+              |> mapM topLevelDefToStatements
 
     setup namespace path =
         map create paths

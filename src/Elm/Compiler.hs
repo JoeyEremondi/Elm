@@ -3,6 +3,7 @@ module Elm.Compiler
     ( version, rawVersion
     , parseDependencies
     , compile, Context(..), Result(..)
+    , Object(..)
     , Dealiaser, dummyDealiaser
     , Error, errorToString, errorToJson, printError
     , Warning, warningToString, warningToJson, printWarning
@@ -26,6 +27,12 @@ import qualified Reporting.Error as Error
 import qualified Reporting.PrettyPrint as P
 import qualified Reporting.Result as Result
 import qualified Reporting.Warning as Warning
+
+import qualified AST.Variable as Var
+
+import qualified Optimize.DeadCode as DCE
+
+import qualified Data.Text as Text
 
 
 -- VERSION
@@ -84,9 +91,16 @@ compile context source interfaces =
 
           let interface = Module.toInterface modul
           let optModule = Optimize.optimize modul
-          let javascript = JS.generate optModule
+          (dceModul , dceInfo) <- DCE.analyzeModule optModule
+          let (topHeader, fnHeader, fnDefs, fnFooter ) = JS.generate optModule
 
-          return (Result docs interface javascript)
+          return (Result docs interface $
+                  Object
+                    { _topHeader = topHeader
+                    , _fnHeader = fnHeader
+                    , _fnDefs = fnDefs
+                    , _fnFooter = fnFooter
+                    , _fnRefGraph = dceInfo})
   in
     ( maybe dummyDealiaser Dealiaser dealiaser
     , map Warning warnings
@@ -105,8 +119,16 @@ data Context = Context
 data Result = Result
     { _docs :: Maybe Docs.Documentation
     , _interface :: PublicModule.Interface
-    , _js :: String
+    , _js :: Object
     }
+
+data Object = Object
+    { _topHeader :: Text.Text
+    , _fnHeader :: Text.Text
+    , _fnFooter :: Text.Text
+    , _fnDefs :: [(String, Text.Text )]
+    , _fnRefGraph :: Map.Map Var.Canonical [Var.Canonical]
+    } deriving (Show, Read)
 
 
 docsGen
