@@ -7,10 +7,14 @@ module Elm.Compiler
     , Dealiaser, dummyDealiaser
     , Error, errorToString, errorToJson, printError
     , Warning, warningToString, warningToJson, printWarning
+    , getUsedDefs, cleanObject
     ) where
 
 import qualified Data.Aeson as Json
+import qualified Data.List as List
 import qualified Data.Map as Map
+import qualified Data.Set as Set
+import qualified Data.Maybe as Maybe
 
 import qualified AST.Module as Module
 import qualified Compile
@@ -127,7 +131,7 @@ data Object = Object
     , _fnHeader :: Text.Text
     , _fnFooter :: Text.Text
     , _fnDefs :: [(String, Text.Text )]
-    , _fnRefGraph :: Map.Map Var.Canonical [Var.Canonical]
+    , _fnRefGraph :: [(Var.Canonical, [Var.Canonical])]
     } deriving (Show, Read)
 
 
@@ -202,3 +206,24 @@ warningToJson (Dealiaser dealiaser) location (Warning err) =
     Warning.toJson dealiaser location err
 
 
+getUsedDefs
+  :: [[(Var.Canonical, [Var.Canonical])]]
+  -> [PublicModule.Interface]
+  -> Set.Set Var.Canonical
+getUsedDefs refGraphs startIfaces =
+  let
+    exports =
+      concatMap Module.iExports startIfaces
+    unValue v =
+      case v of
+        Var.Value s -> Just $ Var.Canonical (Var.Module [error "TODO what module name?"] ) s
+        _ -> Nothing
+    stringValues = Maybe.catMaybes $ map unValue exports 
+  in
+    Set.fromList $ DCE.reachableImports refGraphs stringValues
+
+cleanObject
+  :: Set.Set Var.Canonical
+  -> Object
+  -> Object
+cleanObject usedVars o = o --TODO actually clean up the object

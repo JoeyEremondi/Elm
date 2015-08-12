@@ -373,7 +373,7 @@ analyzeModule modul =
     do  forM_ unusedWarnings (uncurry Result.warn)
         return $
           ( modul {Module.body = (Module.body modul) {Module.program = newProgram } }
-          , _importExportRefs)
+          , error "TODO import export refs")
 
 
 
@@ -393,7 +393,7 @@ removeUnusedDefs usedDefs e@(A.A ann expr) =
 
 
 reachableImports
-  :: [(String, [(Var.Canonical, [Var.Canonical])] )]
+  :: [[(Var.Canonical, [Var.Canonical])]]
   -> [Var.Canonical]
   -> [Var.Canonical]
 reachableImports inputGraphs exposedNames =
@@ -404,7 +404,7 @@ reachableImports inputGraphs exposedNames =
     (moduleGraph, vertFn, keyFn ) =
        G.graphFromEdges $
          [ (inNode, inNode, outNodes) |
-           (moduleName, edgeList ) <- inputGraphs
+           edgeList <- inputGraphs
          , (inNode, outNodes) <- edgeList
          ] ++ initialEdges
     initialNodes = map (Maybe.fromJust . keyFn) exposedNames
