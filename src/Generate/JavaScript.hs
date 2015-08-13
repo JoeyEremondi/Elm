@@ -644,9 +644,10 @@ binop
     -> Opt.Expr
     -> Opt.Expr
     -> State Int Code
-binop func left@(A.A leftFacts _) right
+binop func left@(A.A leftRegion _) right
   | func == Var.Canonical Var.BuiltIn "::" =
-      exprToCode (A.A (Opt.dummyExprFacts $ Opt.exprRegion leftFacts ) (Data "::" [left,right]))
+      --TODO what region?
+      exprToCode (A.A leftRegion (Data "::" [left,right]))
 
   | func == forwardCompose =
       compose (collectLeftAssoc forwardCompose left right)

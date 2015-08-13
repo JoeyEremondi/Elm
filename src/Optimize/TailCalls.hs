@@ -95,7 +95,7 @@ findTailCalls context annExpr@(A.A reg expression) =
       -- this will never find tail calls, use this when you are working with
       -- expressions that cannot be turned into tail calls
   in
-  A.A (Opt.dummyExprFacts reg) <$>
+  A.A reg <$>
   case expression of
     Literal lit ->
         pure (Literal lit)
@@ -139,7 +139,7 @@ findTailCalls context annExpr@(A.A reg expression) =
                 T.traverse justConvert args
 
             apply f arg =
-                App (A.A (Opt.dummyExprFacts reg) f) arg
+                App (A.A reg f) arg
         in
             Result isTailCall (List.foldl' apply optFunc optArgs)
 
@@ -217,7 +217,7 @@ findTailCalls context annExpr@(A.A reg expression) =
 
 removeAnnotations :: P.CanonicalPattern -> Opt.OptPattern
 removeAnnotations (A.A reg pattern) =
-  A.A (Opt.dummyExprFacts reg) $
+  A.A reg $
     case pattern of
       P.Var x ->
           P.Var x

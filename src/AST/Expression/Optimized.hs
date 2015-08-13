@@ -3,7 +3,6 @@ module AST.Expression.Optimized
     ( Expr, Expr'
     , Def(..)
     , Facts(..), dummyFacts
-    , ExprFacts(..), dummyExprFacts
     , OptPattern
     ) where
 
@@ -15,14 +14,14 @@ import Reporting.Region as R
 
 
 type Expr =
-  General.Expr ExprFacts Def Var.Canonical Type.Canonical
+  General.Expr R.Region Def Var.Canonical Type.Canonical
 
 
 type Expr' =
-  General.Expr' ExprFacts Def Var.Canonical Type.Canonical
+  General.Expr' R.Region Def Var.Canonical Type.Canonical
 
 
-type OptPattern = Pattern.Pattern ExprFacts Var.Canonical
+type OptPattern = Pattern.Pattern R.Region Var.Canonical
 
 data Def
     = Definition Facts OptPattern Expr
@@ -37,22 +36,9 @@ data Facts = Facts
     deriving (Eq, Ord, Show)
 
 
-data ExprFacts = ExprFacts
-    { exprIdent :: Int
-    , exprRegion :: R.Region
-    }
-    deriving (Eq, Ord, Show)
-
 dummyFacts :: Facts
 dummyFacts =
     Facts
     { tailRecursionDetails = Nothing
     , defIdent = error "Should not access uninitialized id"
     , defRegion = error "Should not access initial region" }
-
-dummyExprFacts :: R.Region -> ExprFacts
-dummyExprFacts region =
-  ExprFacts
-  { exprIdent = error "Shouldn't access identity before it's assigned"
-  , exprRegion = region
-  }
