@@ -396,7 +396,7 @@ defToStatementsHelp
     -> Opt.OptPattern
     -> Expression ()
     -> State Int [Statement ()]
-defToStatementsHelp facts annPattern@(A.A _ pattern) jsExpr =
+defToStatementsHelp facts annPattern@(A.A efacts pattern) jsExpr =
   let
     define x =
       varDecl x jsExpr
@@ -445,10 +445,12 @@ defToStatementsHelp facts annPattern@(A.A _ pattern) jsExpr =
             return (VarDeclStmt () [define "_"] : defs')
         where
           vars = P.boundVarList annPattern
-          mkVar = A.A Opt.dummyExprFacts . localVar
+          --TODO which facts to use here?
+          mkVar = A.A efacts . localVar
           toDef y =
-            let expr = A.A Opt.dummyExprFacts $ Case (mkVar "_") [(annPattern, mkVar y)]
-                pat = A.A Opt.dummyExprFacts (P.Var y)
+            --TODO what facts to use here?
+            let expr = A.A efacts $ Case (mkVar "_") [(annPattern, mkVar y)]
+                pat = A.A efacts (P.Var y)
             in
                 defToStatements (Opt.Definition facts pat expr)
 
@@ -642,9 +644,9 @@ binop
     -> Opt.Expr
     -> Opt.Expr
     -> State Int Code
-binop func left right
+binop func left@(A.A leftFacts _) right
   | func == Var.Canonical Var.BuiltIn "::" =
-      exprToCode (A.A Opt.dummyExprFacts (Data "::" [left,right]))
+      exprToCode (A.A (Opt.dummyExprFacts $ Opt.exprRegion leftFacts ) (Data "::" [left,right]))
 
   | func == forwardCompose =
       compose (collectLeftAssoc forwardCompose left right)

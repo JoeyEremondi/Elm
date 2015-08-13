@@ -83,7 +83,7 @@ type Context = Maybe (String, Int)
 
 
 findTailCalls :: Context -> Can.Expr -> Result Opt.Expr
-findTailCalls context annExpr@(A.A _ expression) =
+findTailCalls context annExpr@(A.A reg expression) =
   let
     keepLooking =
       findTailCalls context
@@ -95,7 +95,7 @@ findTailCalls context annExpr@(A.A _ expression) =
       -- this will never find tail calls, use this when you are working with
       -- expressions that cannot be turned into tail calls
   in
-  A.A Opt.dummyExprFacts <$>
+  A.A (Opt.dummyExprFacts reg) <$>
   case expression of
     Literal lit ->
         pure (Literal lit)
@@ -139,7 +139,7 @@ findTailCalls context annExpr@(A.A _ expression) =
                 T.traverse justConvert args
 
             apply f arg =
-                App (A.A Opt.dummyExprFacts f) arg
+                App (A.A (Opt.dummyExprFacts reg) f) arg
         in
             Result isTailCall (List.foldl' apply optFunc optArgs)
 
@@ -216,8 +216,8 @@ findTailCalls context annExpr@(A.A _ expression) =
 
 
 removeAnnotations :: P.CanonicalPattern -> Opt.OptPattern
-removeAnnotations (A.A _ pattern) =
-  A.A Opt.dummyExprFacts $
+removeAnnotations (A.A reg pattern) =
+  A.A (Opt.dummyExprFacts reg) $
     case pattern of
       P.Var x ->
           P.Var x

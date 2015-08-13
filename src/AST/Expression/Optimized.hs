@@ -50,5 +50,9 @@ dummyFacts =
     , defIdent = error "Should not access uninitialized id"
     , defRegion = error "Should not access initial region" }
 
-dummyExprFacts :: ExprFacts
-dummyExprFacts = error "TODO dummy expr facts"
+dummyExprFacts :: R.Region -> ExprFacts
+dummyExprFacts region =
+  ExprFacts
+  { exprIdent = error "Shouldn't access identity before it's assigned"
+  , exprRegion = region
+  }
