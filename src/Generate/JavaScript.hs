@@ -437,7 +437,8 @@ topLevelDefToStatements :: Opt.Def -> State Int (String, [Statement ()])
 topLevelDefToStatements (Opt.Definition facts pattern@(A.A _ (P.Var nm)) expr) =
     case Opt.tailRecursionDetails facts of
       Just name ->
-          error "TODO TCO case topLevelDefToStatements"
+          do  func <- generateTailFunction name (Expr.collectLambdas expr)
+              return (nm, [ VarDeclStmt () [ varDecl name func ] ])
 
       Nothing -> do --TODO fix formatting
           retJS <- (defToStatementsHelp facts pattern =<< toJsExpr expr)

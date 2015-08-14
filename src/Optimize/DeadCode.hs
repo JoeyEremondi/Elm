@@ -28,8 +28,6 @@ import qualified Control.Monad.State as State
 import Control.Monad (forM, mapM, forM_)
 import Control.Applicative ((<$>), (<*>) )
 
-import Debug.Trace (trace)
-
 data RefNode =
     ExternalVar Var.Canonical
   | InternalVar Var.Canonical (Int, R.Region)
@@ -134,7 +132,7 @@ is referenced by the body of each branch of the case statement.
 -}
 makeRefGraph :: Module.Name -> RefEnv -> Int -> DCEExpr  -> RefGraph
 makeRefGraph thisModule env currentDef (A.A ann expr) = 
-  case (trace ("makeGraph top, env\n" ++ show env) $ expr) of
+  case expr of
     Crash _ ->
       Map.empty
     
@@ -171,15 +169,15 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
     (Binop _op arg1 arg2) ->
       self arg1 `graphUnion` self arg2
 
-    (Lambda pat arg) -> trace "Lambda case" $ 
+    (Lambda pat arg) -> 
       let
         newEnv =
           foldr (\(v, varAnn) currentEnv -> Map.insert v (exprIdent varAnn, exprRegion varAnn) currentEnv ) env $ patternVars pat
-        patPairs = trace ("Lambda pattern vars " ++ show (patternVars pat )) $
+        patPairs =
           [(v, (exprIdent patAnn, exprRegion patAnn)) | (v,patAnn) <- patternVars pat ]
         insertVarsGraph =
           unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) $ patPairs
-      in trace ("Lambda pattern vars " ++ show (patternVars pat )) $
+      in
         (makeRefGraph thisModule newEnv currentDef arg)
         `graphUnion` insertVarsGraph
 
@@ -187,17 +185,20 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
       self sub1 `graphUnion` self sub2
 
     (MultiIf branches finalBranch) ->
-      unionMap (\ (c, e) -> self c `graphUnion` self e ) branches 
+      unionMap (\ (c, e) -> self c `graphUnion` self e ) branches
+      `graphUnion` self finalBranch
 
-    (Let defs body) -> trace "Let case" $ 
+    (Let defs body) -> 
       let
-        defPairs (Def facts pat _ ) =
-          [(v, (exprIdent patAnn, exprRegion patAnn)) | (v, patAnn) <- patternVars pat]
+        defPairs  =
+          [(v, (exprIdent patAnn, exprRegion patAnn)) |
+             (Def _ pat _ ) <- defs
+             , (v, patAnn) <- patternVars pat]
         defExpr (Def _ _ rhs ) = rhs
-        newEnv =
+        newEnv = 
           foldr (\(v, ident) currentEnv ->
                   Map.insert v ident currentEnv) env
-                (concatMap defPairs defs)
+                defPairs
         defEdges =
           unionMap (\rhs@(A.A subAnn _ ) ->
                      makeRefGraph thisModule newEnv (exprIdent subAnn) rhs )
@@ -205,12 +206,12 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
         patToRHSEdges =
           unionMap (\(v, (rhsId, reg )) ->
                      Map.fromList [(InternalVar v (rhsId, reg ), Set.singleton $ DefNode rhsId)] )
-          (concatMap defPairs defs)
+          defPairs
         insertRHSGraph =
           insertNode $ DefNode $ exprIdent ann
         insertVarsGraph =
-          unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) $ concatMap defPairs defs
-        bodyEdges = self body
+          unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) defPairs
+        bodyEdges = makeRefGraph thisModule newEnv currentDef body
       in
         defEdges
         `graphUnion` bodyEdges
@@ -403,7 +404,7 @@ traverseTopLevels thisModule env (A.A _ e) =
             (\(v, (ident, reg)) ->
               Map.insert (InternalVar v (ident, reg) ) (Set.singleton $ ExprNode ident) Map.empty )
             defPairs
-      in trace ("TL Let defs: " ++ show (map show defs) ) $
+      in 
         defGraphs
         `graphUnion`
         bodyGraph
@@ -508,9 +509,9 @@ addUniqueIdent (A.A reg e) =
            Binop op arg1 arg2 ->
              (Binop op) <$> self arg1 <*> self arg2
          
-           Lambda pat body -> trace ("LAMBDA: Adding unique ident to " ++ show e) $
+           Lambda pat body -> 
              do  newPat <- addPatIdent pat
-                 error $ "Lambda access " ++ show e --Lambda newPat <$> self body
+                 Lambda newPat <$> self body
          
            App fn arg ->
              App <$> self fn <*> self arg
@@ -587,7 +588,7 @@ analyzeModule modul =
     identExpr =
       State.evalState (addUniqueIdent $ Module.program $ Module.body modul) 1
     
-    (ggraph, getNode, getInt ) = trace ("ORIGINAL program: " ++ (showTop $ Module.program $ Module.body modul )) $
+    (ggraph, getNode, getInt ) = 
       moduleRefGraph (Module.names modul) $ identExpr
 
     allNodes = 
