@@ -13,10 +13,6 @@ import qualified AST.Pattern as P
 import qualified AST.Variable as Var
 import qualified Reporting.Annotation as A
 
-import qualified AST.Expression.Optimized as Opt
-
-import Debug.Trace (trace)
-
 
 -- OPTIMIZE FOR TAIL CALLS
 
@@ -57,6 +53,7 @@ mapSnd func (x, a) =
 detectTailRecursion :: Can.Def -> Opt.Def
 detectTailRecursion (Can.Definition pattern expression _) =
     let
+        (A.A region _) = expression
         (args, body) =
             Expr.collectLambdas expression
 
@@ -72,11 +69,15 @@ detectTailRecursion (Can.Definition pattern expression _) =
 
         (Result isTailCall optExpr) =
             findTailCalls context body
+
+        --TODO where to get this region? 
+        lambda x e =
+            A.A region (Lambda x e)
     in
         Opt.Definition
-          (Opt.dummyFacts { Opt.tailRecursionDetails = if isTailCall then context else Nothing})
+          (Opt.Facts (if isTailCall then fmap fst context else Nothing) (-1))
           (removeAnnotations pattern)
-          optExpr
+          (foldr lambda optExpr (map removeAnnotations args))
 
 
 -- CONVERT EXPRESSIONS
@@ -119,7 +120,7 @@ findTailCalls context annExpr@(A.A reg expression) =
           <$> justConvert leftExpr
           <*> justConvert rightExpr
 
-    Lambda pattern body -> trace ("Find tail calls LAMBDA\n" ++ show expression ) $
+    Lambda pattern body ->
         Lambda (removeAnnotations pattern) <$> justConvert body
 
     App _ _ ->
@@ -136,10 +137,12 @@ findTailCalls context annExpr@(A.A reg expression) =
 
             (Result _ (A.A _ optFunc)) =
                 justConvert func
+
             (Result _ optArgs) =
                 T.traverse justConvert args
 
             apply f arg =
+                --TODO which region?
                 App (A.A reg f) arg
         in
             Result isTailCall (List.foldl' apply optFunc optArgs)
@@ -157,7 +160,7 @@ findTailCalls context annExpr@(A.A reg expression) =
     Let defs body ->
         let
             optDefs = map detectTailRecursion defs
-        in trace ("Find TCE Let:\n" ++ show defs) $
+        in
             Let optDefs <$> keepLooking body
 
     Case expr cases ->
@@ -216,7 +219,7 @@ findTailCalls context annExpr@(A.A reg expression) =
         pure (Crash details)
 
 
-removeAnnotations :: P.CanonicalPattern -> Opt.OptPattern
+removeAnnotations :: P.CanonicalPattern -> P.Optimized
 removeAnnotations (A.A reg pattern) =
   A.A reg $
     case pattern of
@@ -237,5 +240,3 @@ removeAnnotations (A.A reg pattern) =
 
       P.Data name patterns ->
           P.Data name (map removeAnnotations patterns)
-
-

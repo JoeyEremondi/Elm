@@ -33,12 +33,12 @@ data Clause =
 
 
 type Branch =
-    ([Optimized.OptPattern], Optimized.Expr)
+    ([P.Optimized], Optimized.Expr)
 
 
 -- PUBLIC FUNCTIONS
 
-toMatch :: [(Optimized.OptPattern, Optimized.Expr)] -> State Int (String, Match)
+toMatch :: [(P.Optimized, Optimized.Expr)] -> State Int (String, Match)
 toMatch patterns =
   do  v <- newVar
       (,) v <$> buildMatch [v] (map (first (:[])) patterns) Fail

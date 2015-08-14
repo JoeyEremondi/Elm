@@ -273,7 +273,7 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
   where self = makeRefGraph thisModule env currentDef
 
 
-dropPatAnnotation :: DCEPat -> Opt.OptPattern
+dropPatAnnotation :: DCEPat -> Pat.Optimized
 dropPatAnnotation (A.A facts pat) =
   A.A (exprRegion facts ) $
     case pat of
@@ -459,7 +459,7 @@ addPortIdent portImpl =
         return $ Task p1 newExpr p3
 
 
-addPatIdent :: Opt.OptPattern -> State.State Int DCEPat
+addPatIdent :: Pat.Optimized -> State.State Int DCEPat
 addPatIdent (A.A reg pat) =
   do  innerPat <-
         case pat of

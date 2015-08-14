@@ -3,7 +3,6 @@ module AST.Expression.Optimized
     ( Expr, Expr'
     , Def(..)
     , Facts(..), dummyFacts
-    , OptPattern
     ) where
 
 import qualified AST.Expression.General as General
@@ -21,15 +20,13 @@ type Expr' =
   General.Expr' R.Region Def Var.Canonical Type.Canonical
 
 
-type OptPattern = Pattern.Pattern R.Region Var.Canonical
-
 data Def
-    = Definition Facts OptPattern Expr
+    = Definition Facts Pattern.Optimized Expr
     deriving (Show)
 
 
 data Facts = Facts
-    { tailRecursionDetails :: Maybe (String, Int)
+    { tailRecursionDetails :: Maybe String
     , defIdent :: Int
     }
     deriving (Eq, Ord, Show)
