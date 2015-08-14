@@ -630,7 +630,7 @@ analyzeModule modul =
             List.filter isExternalInt $ G.reachable ggraph vi
 
     importExportRefs =
-      Map.fromList $ List.map (\vnode@(InternalVar v _ ) ->
+       List.map (\vnode@(InternalVar v _ ) ->
                                 (v, importRefsForNode vnode) ) exportedNodes
 
     defIsReachable vnode =
@@ -655,7 +655,7 @@ analyzeModule modul =
     do  forM_ unusedWarnings (uncurry Result.warn)
         return $
           ( modul {Module.body = (Module.body modul) {Module.program = newProgram } }
-          , [] ) {-"TODO import export refs"-}
+          , importExportRefs )
 
 
 
