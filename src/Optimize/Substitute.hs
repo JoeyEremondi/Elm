@@ -12,7 +12,7 @@ import qualified Reporting.Annotation as A
 
 
 subst :: String -> Optimized.Expr' -> Optimized.Expr' -> Optimized.Expr'
-subst old new expression =
+subst old new expression = expression {-
     let f (A.A a e) = A.A a (subst old new e) in
     case expression of
       Range lo hi ->
@@ -104,3 +104,4 @@ subst old new expression =
 
       Crash _ ->
           expression
+-}

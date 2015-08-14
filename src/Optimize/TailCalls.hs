@@ -15,6 +15,8 @@ import qualified Reporting.Annotation as A
 
 import qualified AST.Expression.Optimized as Opt
 
+import Debug.Trace (trace)
+
 
 -- OPTIMIZE FOR TAIL CALLS
 
@@ -117,7 +119,7 @@ findTailCalls context annExpr@(A.A reg expression) =
           <$> justConvert leftExpr
           <*> justConvert rightExpr
 
-    Lambda pattern body ->
+    Lambda pattern body -> trace ("Find tail calls LAMBDA\n" ++ show expression ) $
         Lambda (removeAnnotations pattern) <$> justConvert body
 
     App _ _ ->
@@ -134,7 +136,6 @@ findTailCalls context annExpr@(A.A reg expression) =
 
             (Result _ (A.A _ optFunc)) =
                 justConvert func
-
             (Result _ optArgs) =
                 T.traverse justConvert args
 
@@ -156,7 +157,7 @@ findTailCalls context annExpr@(A.A reg expression) =
     Let defs body ->
         let
             optDefs = map detectTailRecursion defs
-        in
+        in trace ("Find TCE Let:\n" ++ show defs) $
             Let optDefs <$> keepLooking body
 
     Case expr cases ->
@@ -236,3 +237,5 @@ removeAnnotations (A.A reg pattern) =
 
       P.Data name patterns ->
           P.Data name (map removeAnnotations patterns)
+
+

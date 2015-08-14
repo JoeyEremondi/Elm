@@ -28,6 +28,7 @@ import qualified Control.Monad.State as State
 import Control.Monad (forM, mapM, forM_)
 import Control.Applicative ((<$>), (<*>) )
 
+import Debug.Trace (trace)
 
 data RefNode =
     ExternalVar Var.Canonical
@@ -132,19 +133,32 @@ and assume that every variable in the expression being matched
 is referenced by the body of each branch of the case statement.
 -}
 makeRefGraph :: Module.Name -> RefEnv -> Int -> DCEExpr  -> RefGraph
-makeRefGraph thisModule env currentDef (A.A ann expr) =
-  case expr of
+makeRefGraph thisModule env currentDef (A.A ann expr) = 
+  case (trace ("makeGraph top, env\n" ++ show env) $ expr) of
+    Crash _ ->
+      Map.empty
+    
     (Literal _) ->
       Map.empty
     
     (Var v) ->
       case Var.home v of
         Var.Local ->
-          Map.fromList
-            [(ExprNode currentDef,
-              Set.singleton $ InternalVar v $ env Map.! v)]
+          case Map.lookup v env of
+            Just info ->
+              Map.fromList
+                [(ExprNode currentDef,
+                  Set.singleton $ InternalVar v info)]
+            _ ->
+              error $
+                "In module " ++ (show thisModule )
+                ++ "\nVar " ++ (show v)
+                ++ " not in env " ++ show env
+                ++ "\nCurrent def: " ++ show currentDef
         Var.Module someMod | someMod == thisModule ->
-          Map.fromList [(ExprNode currentDef, Set.singleton $ InternalVar v $ env Map.! v)]
+          case Map.lookup v env of
+            Just info ->
+              Map.fromList [(ExprNode currentDef, Set.singleton $ InternalVar v info)]
         _ ->
           Map.fromList [( ExprNode currentDef, Set.singleton $ ExternalVar v)]
           
@@ -157,15 +171,15 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
     (Binop _op arg1 arg2) ->
       self arg1 `graphUnion` self arg2
 
-    (Lambda pat arg) ->
+    (Lambda pat arg) -> trace "Lambda case" $ 
       let
         newEnv =
           foldr (\(v, varAnn) currentEnv -> Map.insert v (exprIdent varAnn, exprRegion varAnn) currentEnv ) env $ patternVars pat
-        patPairs =
+        patPairs = trace ("Lambda pattern vars " ++ show (patternVars pat )) $
           [(v, (exprIdent patAnn, exprRegion patAnn)) | (v,patAnn) <- patternVars pat ]
         insertVarsGraph =
           unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) $ patPairs
-      in
+      in trace ("Lambda pattern vars " ++ show (patternVars pat )) $
         (makeRefGraph thisModule newEnv currentDef arg)
         `graphUnion` insertVarsGraph
 
@@ -175,7 +189,7 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
     (MultiIf branches finalBranch) ->
       unionMap (\ (c, e) -> self c `graphUnion` self e ) branches 
 
-    (Let defs body) ->
+    (Let defs body) -> trace "Let case" $ 
       let
         defPairs (Def facts pat _ ) =
           [(v, (exprIdent patAnn, exprRegion patAnn)) | (v, patAnn) <- patternVars pat]
@@ -388,8 +402,8 @@ traverseTopLevels thisModule env (A.A _ e) =
           unionMap
             (\(v, (ident, reg)) ->
               Map.insert (InternalVar v (ident, reg) ) (Set.singleton $ ExprNode ident) Map.empty )
-            defPairs 
-      in
+            defPairs
+      in trace ("TL Let defs: " ++ show (map show defs) ) $
         defGraphs
         `graphUnion`
         bodyGraph
@@ -399,6 +413,8 @@ traverseTopLevels thisModule env (A.A _ e) =
         insertNode InitialNode
         `graphUnion`
         nameEdges
+    _ ->
+      error "Shouldn't have non Let in top-level structure"  
 
 --TODO: is ExportedIdent wrong?               
 moduleRefGraph
@@ -422,7 +438,10 @@ moduleRefGraph thisModule e =
 
 addDefIdent :: Opt.Def -> State.State Int Def
 addDefIdent (Opt.Definition facts pat expr) =
-  Def facts <$> addPatIdent pat <*> addUniqueIdent expr
+  do  nextInt <- State.get
+      State.put (nextInt + 1)
+      let newFacts = facts {Opt.defIdent = nextInt}
+      Def newFacts <$> addPatIdent pat <*> addUniqueIdent expr
 
 
 addPortIdent :: PortImpl Opt.Expr t -> State.State Int (PortImpl DCEExpr t)
@@ -489,9 +508,9 @@ addUniqueIdent (A.A reg e) =
            Binop op arg1 arg2 ->
              (Binop op) <$> self arg1 <*> self arg2
          
-           Lambda pat body ->
+           Lambda pat body -> trace ("LAMBDA: Adding unique ident to " ++ show e) $
              do  newPat <- addPatIdent pat
-                 Lambda newPat <$> self body
+                 error $ "Lambda access " ++ show e --Lambda newPat <$> self body
          
            App fn arg ->
              App <$> self fn <*> self arg
@@ -543,11 +562,20 @@ addUniqueIdent (A.A reg e) =
          
            GLShader a b c ->
              return $ GLShader a b c
+
+           Crash x ->
+             return $ Crash x
          
      newExpr <- newExprM
      nextInt <- State.get
      State.put (nextInt + 1)
      return $ A.A (ExprFacts reg nextInt) newExpr
+
+showTop (A.A _ e) = case e of
+  Let defs body ->
+    show defs ++ " " ++ showTop body
+  _ -> ""
+
 
 analyzeModule
   :: Module.Optimized
@@ -555,10 +583,11 @@ analyzeModule
       ( Module.Optimized, [(Var.Canonical, [Var.Canonical])])
 analyzeModule modul = 
   let
+    
     identExpr =
       State.evalState (addUniqueIdent $ Module.program $ Module.body modul) 1
     
-    (ggraph, getNode, getInt ) =
+    (ggraph, getNode, getInt ) = trace ("ORIGINAL program: " ++ (showTop $ Module.program $ Module.body modul )) $
       moduleRefGraph (Module.names modul) $ identExpr
 
     allNodes = 
@@ -625,7 +654,7 @@ analyzeModule modul =
     do  forM_ unusedWarnings (uncurry Result.warn)
         return $
           ( modul {Module.body = (Module.body modul) {Module.program = newProgram } }
-          , error "TODO import export refs")
+          , [] ) {-"TODO import export refs"-}
 
 
 

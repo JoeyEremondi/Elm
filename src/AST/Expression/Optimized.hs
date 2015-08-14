@@ -31,7 +31,6 @@ data Def
 data Facts = Facts
     { tailRecursionDetails :: Maybe (String, Int)
     , defIdent :: Int
-    , defRegion :: R.Region
     }
     deriving (Eq, Ord, Show)
 
@@ -40,5 +39,5 @@ dummyFacts :: Facts
 dummyFacts =
     Facts
     { tailRecursionDetails = Nothing
-    , defIdent = error "Should not access uninitialized id"
-    , defRegion = error "Should not access initial region" }
+    , defIdent = -1 --error "Should not access uninitialized id"
+    }
