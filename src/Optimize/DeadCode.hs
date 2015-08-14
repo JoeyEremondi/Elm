@@ -259,6 +259,101 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
   where self = makeRefGraph thisModule env currentDef
 
 
+dropPatAnnotation :: DCEPat -> Opt.OptPattern
+dropPatAnnotation (A.A facts pat) =
+  A.A (exprRegion facts ) $
+    case pat of
+      Pat.Data p1 p2 ->
+        Pat.Data p1 (map dropPatAnnotation p2)
+
+      Pat.Record p ->
+        Pat.Record p
+
+      Pat.Alias p1 p2 ->
+        Pat.Alias p1 $ dropPatAnnotation p2
+
+      Pat.Var p ->
+        Pat.Var p
+
+      Pat.Anything ->
+        Pat.Anything
+
+      Pat.Literal p ->
+        Pat.Literal p
+
+
+dropDefAnnotation :: Def -> Opt.Def
+dropDefAnnotation (Def facts pat expr ) =
+  Opt.Definition facts (dropPatAnnotation pat) (dropAnnotation expr)
+
+dropAnnotation ::
+  DCEExpr -> Opt.Expr
+dropAnnotation (A.A facts expr ) =
+  A.A (exprRegion facts ) $
+    case expr of
+      Literal e ->
+        Literal e
+
+      Var e ->
+        Var e
+
+      Range e1 e2 ->
+        Range (dropAnnotation e1) (dropAnnotation e2)
+
+      ExplicitList e ->
+        ExplicitList $ map dropAnnotation e
+
+      Binop e1 e2 e3 ->
+        Binop e1 (dropAnnotation e2) (dropAnnotation e3)
+
+      Lambda e1 e2 ->
+        Lambda (dropPatAnnotation e1) (dropAnnotation e2)
+
+      App e1 e2 ->
+        App (dropAnnotation e1) (dropAnnotation e2)
+
+      MultiIf e1 e2 ->
+        MultiIf (map (\(x,y) -> (dropAnnotation x, dropAnnotation y)) e1) (dropAnnotation e2)
+
+      Let defs e2 ->
+        Let (map dropDefAnnotation defs ) (dropAnnotation e2 )
+
+      Case e1 e2 ->
+        Case (dropAnnotation e1) $ map (\(x,y) -> (dropPatAnnotation x, dropAnnotation y) ) e2
+
+      Data e1 e2 ->
+        Data e1 $ map dropAnnotation e2
+
+      Access e1 e2 ->
+        Access (dropAnnotation e1) e2
+
+      Remove e1 e2 ->
+        Remove (dropAnnotation e1) e2
+
+      Insert e1 e2 e3 ->
+        Insert (dropAnnotation e1) e2 (dropAnnotation e3)
+
+      Modify e1 e2 ->
+        Modify (dropAnnotation e1) (map (\(x,y) -> (x, dropAnnotation y) ) e2)
+
+      Record e ->
+        Record (map (\(x,y) -> (x, dropAnnotation y) ) e)
+
+      Port (In p1 p2) ->
+        Port $ In p1 p2
+      
+      Port (Out p1 p2 p3) ->
+        Port $ Out p1 (dropAnnotation p2) p3
+
+      Port (Task p1 p2 p3) ->
+        Port $ Task p1 (dropAnnotation p2) p3
+
+      GLShader e1 e2 e3 ->
+        GLShader e1 e2 e3
+
+      Crash e ->
+        Crash e
+
 traverseTopLevels
  :: Module.Name
  -> RefEnv
@@ -457,7 +552,7 @@ addUniqueIdent (A.A reg e) =
 analyzeModule
   :: Module.Optimized
   -> Result.Result Warning.Warning Error.Error
-      ( Module.CanonicalModule, [(Var.Canonical, [Var.Canonical])])
+      ( Module.Optimized, [(Var.Canonical, [Var.Canonical])])
 analyzeModule modul = 
   let
     identExpr =
@@ -521,8 +616,10 @@ analyzeModule modul =
     reachableDefs =
       Set.fromList $ Maybe.catMaybes $ map defIsReachable allNodes
 
-    newProgram =
-      (error "TODO thread fn") (removeUnusedDefs reachableDefs) $ Module.program $ Module.body modul
+    newProgram = --TODO clean up program?
+      Module.program $ Module.body modul
+    --newProgram =
+    --  (error "TODO thread fn") (removeUnusedDefs reachableDefs) $ Module.program $ Module.body modul
 
   in
     do  forM_ unusedWarnings (uncurry Result.warn)
