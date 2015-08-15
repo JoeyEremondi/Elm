@@ -387,12 +387,10 @@ topLevelNames thisModule (A.A _ e) =
     Let defs expr ->
       let
         --TODO avoid duplication
-        makeDefPairs (Def facts pat (A.A subAnn _) ) =
+        makeDefPairs (Def _ pat (A.A subAnn _) ) =
           [(v, (exprIdent subAnn, exprRegion pFacts)) | (v, pFacts) <- patternVars pat]
         defPairs =
           concatMap makeDefPairs defs
-        localizedPairs =
-          [(localizeVar thisModule v, facts ) | (v, facts ) <- defPairs]
         subNames =
           topLevelNames thisModule expr
         defNodes = map (\(v, pr) -> InternalVar v pr) defPairs
@@ -419,12 +417,10 @@ traverseTopLevels thisModule env (A.A _ e) =
           [(v, (exprIdent subAnn, exprRegion pFacts)) | (v, pFacts) <- patternVars pat]
         defPairs =
           concatMap makeDefPairs defs
-        localizedPairs =
-          [(localizeVar thisModule v, facts ) | (v, facts ) <- defPairs]
         defBodies =
           map (\(Def _ _ rhs@(A.A subAnn _) ) -> (rhs, exprIdent subAnn) ) defs 
         initialEnv =
-          List.foldr (\(v, pr ) currentEnv -> Map.insert v pr currentEnv  ) env localizedPairs
+          List.foldr (\(v, pr ) currentEnv -> Map.insert v pr currentEnv  ) env defPairs
         bodyGraph =
           traverseTopLevels thisModule initialEnv body
         defGraphs =
@@ -434,13 +430,13 @@ traverseTopLevels thisModule env (A.A _ e) =
           unionMap
             (\(v, pr) ->
               Map.insert InitialNode (Set.singleton $ InternalVar v pr) Map.empty )
-            localizedPairs
+            defPairs
         --Edges from each defined name to the expression defining its value
         nameEdges =
           unionMap
             (\(v, (ident, reg)) ->
               Map.insert (InternalVar v (ident, reg) ) (Set.singleton $ ExprNode ident) Map.empty )
-            localizedPairs
+            defPairs
       in 
         defGraphs
         `graphUnion`
@@ -672,7 +668,8 @@ analyzeModule modul =
 
     importExportRefs =
        List.map (\vnode@(InternalVar v _ ) ->
-                                (v, importRefsForNode vnode) ) exportedNodes
+                                (localizeVar names v,
+                                 map (localizeVar names) $ importRefsForNode vnode) ) exportedNodes
 
     defIsReachable vnode =
       case (vnode, getInt vnode) of
@@ -746,7 +743,8 @@ reachableImports inputGraphs exposedNames =
          G.graphFromEdges $ initialEdges ++ graphEdges
          
 
-    initialNodes = map (Maybe.fromJust . keyFn) exposedNames
+    initialNodes =
+      map (Maybe.fromJust . keyFn) exposedNames
 
     reachableNodes =
       G.reachable moduleGraph (Maybe.fromJust $ keyFn initialNode)

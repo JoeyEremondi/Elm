@@ -37,6 +37,13 @@ import qualified AST.Variable as Var
 import qualified Optimize.DeadCode as DCE
 
 import qualified Data.Text as Text
+import Data.Text.Internal ( )
+
+import Control.Applicative ((<$>), (<*>) )
+import Data.Text.Encoding (encodeUtf8, decodeUtf8)
+
+import qualified Data.Binary as Binary
+
 
 
 -- VERSION
@@ -134,8 +141,33 @@ data Object = Object
     , _fnDefs :: [(String, Text.Text )]
     , _fnRefGraph :: [(Var.Canonical, [Var.Canonical])]
     , _objModule :: PublicModule.Name 
-    } deriving (Show, Read)
+    } deriving (Show)
 
+instance Binary.Binary Object where
+  put o =
+    do  let (PublicModule.Name names ) = _objModule o
+        Binary.put $ encodeUtf8 $ _topHeader o
+        Binary.put $ encodeUtf8 $ _fnHeader o
+        Binary.put $ encodeUtf8 $ _fnFooter o
+        Binary.put $ map (\(s, def ) ->
+                           (encodeUtf8 $ Text.pack s, encodeUtf8 def ) ) $ _fnDefs o
+        Binary.put $ map (\(vin, vouts) ->
+                           (encodeUtf8 $ Text.pack $ show vin, map (encodeUtf8 . Text.pack . show ) vouts ) ) $ _fnRefGraph o
+        Binary.put $ map (encodeUtf8 . Text.pack ) names
+  get =
+    do  topH <- decodeUtf8 <$> Binary.get
+        fnH <- decodeUtf8 <$> Binary.get
+        fnF <- decodeUtf8 <$> Binary.get
+        defPairList <- Binary.get
+        let unpackedDefs =
+              map (\(tnm, tdef ) -> (Text.unpack $ decodeUtf8 tnm, decodeUtf8 tdef) ) defPairList
+        graphPairs <- Binary.get
+        let unpackedGraph = map (\(vin, vouts ) ->
+                                (read $ Text.unpack $ decodeUtf8 vin,
+                                 map (read . Text.unpack . decodeUtf8 ) vouts ) ) graphPairs
+        modul <- map ((Text.unpack . decodeUtf8 )) <$> Binary.get
+        return $
+          Object topH fnH fnF unpackedDefs unpackedGraph (PublicModule.Name modul)
 
 docsGen
     :: Bool
