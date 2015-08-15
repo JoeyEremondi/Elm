@@ -369,6 +369,41 @@ dropAnnotation (A.A facts expr ) =
       Crash e ->
         Crash e
 
+
+localizeVar thisModule v = case v of
+  Var.Canonical Var.Local nm ->
+    Var.Canonical (Var.Module thisModule) nm
+  _ -> v
+
+
+--topLevelNames
+-- :: Module.Name
+-- -> DCEExpr
+-- -> [Var.Canonical]
+topLevelNames thisModule (A.A _ e) =
+  case e of
+    Var (Var.Canonical Var.BuiltIn nm) | nm == saveEnvName ->
+      []
+    Let defs expr ->
+      let
+        --TODO avoid duplication
+        makeDefPairs (Def facts pat (A.A subAnn _) ) =
+          [(v, (exprIdent subAnn, exprRegion pFacts)) | (v, pFacts) <- patternVars pat]
+        defPairs =
+          concatMap makeDefPairs defs
+        localizedPairs =
+          [(localizeVar thisModule v, facts ) | (v, facts ) <- defPairs]
+        subNames =
+          topLevelNames thisModule expr
+        defNodes = map (\(v, pr) -> InternalVar v pr) defPairs
+      in
+        subNames ++
+        defNodes
+    _ ->
+      error "Shouldn't have non Let in top-level structure"  
+
+
+
 traverseTopLevels
  :: Module.Name
  -> RefEnv
@@ -384,10 +419,12 @@ traverseTopLevels thisModule env (A.A _ e) =
           [(v, (exprIdent subAnn, exprRegion pFacts)) | (v, pFacts) <- patternVars pat]
         defPairs =
           concatMap makeDefPairs defs
+        localizedPairs =
+          [(localizeVar thisModule v, facts ) | (v, facts ) <- defPairs]
         defBodies =
           map (\(Def _ _ rhs@(A.A subAnn _) ) -> (rhs, exprIdent subAnn) ) defs 
         initialEnv =
-          List.foldr (\(v, pr ) currentEnv -> Map.insert v pr currentEnv  ) env defPairs
+          List.foldr (\(v, pr ) currentEnv -> Map.insert v pr currentEnv  ) env localizedPairs
         bodyGraph =
           traverseTopLevels thisModule initialEnv body
         defGraphs =
@@ -397,13 +434,13 @@ traverseTopLevels thisModule env (A.A _ e) =
           unionMap
             (\(v, pr) ->
               Map.insert InitialNode (Set.singleton $ InternalVar v pr) Map.empty )
-            defPairs
+            localizedPairs
         --Edges from each defined name to the expression defining its value
         nameEdges =
           unionMap
             (\(v, (ident, reg)) ->
               Map.insert (InternalVar v (ident, reg) ) (Set.singleton $ ExprNode ident) Map.empty )
-            defPairs
+            localizedPairs
       in 
         defGraphs
         `graphUnion`
@@ -587,17 +624,21 @@ analyzeModule modul =
     
     identExpr =
       State.evalState (addUniqueIdent $ Module.program $ Module.body modul) 1
+
+    names =
+      (Module.names modul)
     
     (ggraph, getNode, getInt ) = 
-      moduleRefGraph (Module.names modul) $ identExpr
+      moduleRefGraph names $ identExpr
 
     allNodes = 
       List.map (fst . getNode) $ G.vertices ggraph
 
-    exportedNodes = [InitialNode]
+    exportedNodes =
+      topLevelNames names identExpr
     
     initialInts = 
-      Maybe.catMaybes $ List.map getInt $ exportedNodes
+      Maybe.catMaybes $ List.map getInt $ [InitialNode]
     --TODO: fast way to do this with arrays?
 
     reachableNodes = 
