@@ -434,17 +434,23 @@ crushIfsHelp visitedBranches unvisitedBranches finally =
 -- DEFINITIONS
 
 
---TODO safe to assume always a single name?
 topLevelDefToStatements :: Opt.Def -> State Int (String, [Statement ()])
-topLevelDefToStatements (Opt.Definition facts pattern@(A.A _ (P.Var nm)) expr) =
-    case Opt.tailRecursionDetails facts of
-      Just name ->
-          do  func <- generateTailFunction name (Expr.collectLambdas expr)
-              return (nm, [ VarDeclStmt () [ varDecl name func ] ])
+topLevelDefToStatements def =
+  case def of
+    (Opt.Definition facts pattern@(A.A _ (P.Var nm)) expr) ->
+      case Opt.tailRecursionDetails facts of
+        Just name ->
+            do  func <- generateTailFunction name (Expr.collectLambdas expr)
+                return (nm, [ VarDeclStmt () [ varDecl name func ] ])
 
-      Nothing -> do --TODO fix formatting
-          retJS <- (defToStatementsHelp facts pattern =<< toJsExpr expr)
-          return (nm, retJS )
+        Nothing ->
+          do  retJS <- (defToStatementsHelp facts pattern =<< toJsExpr expr)
+              return (nm, retJS )
+
+    _ ->
+      error "Should only have single names defined at the top level"
+
+
 defToStatements :: Opt.Def -> State Int [Statement ()]
 defToStatements (Opt.Definition facts pattern expr) =
     case Opt.tailRecursionDetails facts of
