@@ -446,7 +446,7 @@ topLevelDefToStatements (Opt.Definition facts pattern@(A.A _ (P.Var nm)) expr) =
           retJS <- (defToStatementsHelp facts pattern =<< toJsExpr expr)
           return (nm, retJS )
 defToStatements :: Opt.Def -> State Int [Statement ()]
-defToStatements def@(Opt.Definition facts pattern expr) =
+defToStatements (Opt.Definition facts pattern expr) =
     case Opt.tailRecursionDetails facts of
       Just name ->
           do  func <- generateTailFunction name (Expr.collectLambdas expr)
