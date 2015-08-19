@@ -617,10 +617,16 @@ flattenLets defs lexpr@(A.A _ expr) =
       _ -> (defs, lexpr)
 
 
-generate :: Module.Optimized -> (Text.Text, Text.Text, [(String, Text.Text)], [String])
+generate
+  :: Module.Optimized
+  -> (Text.Text
+    , Text.Text
+    , [(String, Text.Text )]
+    , [(String, Text.Text)], [String])
 generate modul =
   ( (Text.pack . show . prettyPrint) $ setup "Elm" (names ++ ["make"])
   , (Text.pack . show . prettyPrint) $ headerStmts
+  , map (\(nm, js) -> (nm, Text.pack js)) $ jsExports
   , map (\(nm, js) -> (nm, (Text.pack . show . prettyPrint) js)) $ bodyDefs
   , names)
     --show . prettyPrint $ setup "Elm" (names ++ ["make"]) ++
@@ -682,20 +688,23 @@ generate modul =
               |> drop 2
 
     jsExports =
-        assign (localRuntime : names ++ ["values"]) (ObjectLit () exs)
+        map entry $ ("_op", "_op") : concatMap extract (exports modul)
       where
-        exs = map entry $ "_op" : concatMap extract (exports modul)
-        entry x = (prop x, ref x)
+        entry (nm, x) =
+          (nm,
+           (show $ prettyPrint $ prop x)
+            ++ " : " ++
+            (show $ prettyPrint $ ref x))
         extract value =
             case value of
               Var.Alias _ -> []
 
               Var.Value x
                 | Help.isOp x -> []
-                | otherwise   -> [Var.varName x]
+                | otherwise   -> [(x, Var.varName x)]
 
               Var.Union _ (Var.Listing ctors _) ->
-                  map Var.varName ctors
+                  map (\x -> (x, Var.varName x)) ctors
 
     assign path expr =
       case path of

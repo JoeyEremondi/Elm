@@ -7,7 +7,7 @@ module Elm.Compiler
     , Dealiaser, dummyDealiaser
     , Error, errorToString, errorToJson, printError
     , Warning, warningToString, warningToJson, printWarning
-    , getUsedDefs, cleanObject
+    , getUsedDefs, cleanObject, renderObject
     ) where
 
 import qualified Data.Aeson as Json
@@ -16,6 +16,7 @@ import qualified Data.Set as Set
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as Text
 import qualified Data.Binary as Binary
+import qualified Data.List as List
 
 import Data.Text.Internal ( )
 
@@ -99,12 +100,13 @@ compile context source interfaces =
 
           let interface = Module.toInterface modul
           let optModule = Optimize.optimize modul
-          let (topHeader, fnHeader, fnDefs, modulName ) = JS.generate optModule
+          let (topHeader, fnHeader, jsExports, fnDefs, modulName ) = JS.generate optModule
 
           return (Result docs interface $
                   Object
                     { _topHeader = topHeader
                     , _fnHeader = fnHeader
+                    , _jsExports = jsExports
                     , _fnDefs = fnDefs
                     , _fnRefGraph = dceInfo
                     , _objModule = PublicModule.Name modulName})
@@ -136,6 +138,7 @@ data Result = Result
 data Object = Object
     { _topHeader :: Text.Text
     , _fnHeader :: Text.Text
+    , _jsExports :: [(String, Text.Text )]
     , _fnDefs :: [(String, Text.Text )]
     , _fnRefGraph :: [(([String], String), [([String], String)])]
     , _objModule :: PublicModule.Name 
@@ -149,6 +152,8 @@ instance Binary.Binary Object where
         Binary.put $ map (encodeUtf8 . Text.pack ) names
         Binary.put $ encodeUtf8 $ _topHeader o
         Binary.put $ encodeUtf8 $ _fnHeader o
+        Binary.put $ map (\(s, exprt ) ->
+                           (encodeUtf8 $ Text.pack s, encodeUtf8 exprt ) ) $ _jsExports o
         Binary.put $ map (\(s, def ) ->
                            (encodeUtf8 $ Text.pack s, encodeUtf8 def ) ) $ _fnDefs o
         Binary.put $ _fnRefGraph o
@@ -159,12 +164,15 @@ instance Binary.Binary Object where
               PublicModule.Name $ map ( Text.unpack . decodeUtf8) modulList
         topH <- decodeUtf8 <$> Binary.get
         fnH <- decodeUtf8 <$> Binary.get
+        expPairList <- Binary.get
+        let unpackedExports =
+              map (\(tnm, texp ) -> (Text.unpack $ decodeUtf8 tnm, decodeUtf8 texp) ) expPairList
         defPairList <- Binary.get
         let unpackedDefs =
               map (\(tnm, tdef ) -> (Text.unpack $ decodeUtf8 tnm, decodeUtf8 tdef) ) defPairList
         graphPairs <- Binary.get
         return $
-          Object topH fnH unpackedDefs graphPairs modul
+          Object topH fnH unpackedExports unpackedDefs graphPairs modul
 
 
 docsGen
@@ -307,4 +315,38 @@ cleanObject usedVars obj =
     isUsed (defName, _) =
       Set.member (ourName, defName) usedVars
   in
-    obj {_fnDefs = filter isUsed $ _fnDefs obj}
+    obj { _fnDefs = filter isUsed $ _fnDefs obj
+        , _jsExports = filter isUsed $ _jsExports obj}
+
+
+renderObject :: Object -> Text.Text
+renderObject obj =
+  let
+    PublicModule.Name nameList = _objModule obj
+    makeName =
+      List.intercalate "." (["Elm"] ++ nameList ++ ["make"] )
+    valuesName =
+      Text.pack $
+        List.intercalate "." (["_elm"] ++ nameList ++ ["values"] )
+    valuesList =
+      Text.concat
+      [ Text.pack "{ "
+      , Text.intercalate (Text.pack ", ") (map snd $ _jsExports obj )
+      , Text.pack "};"
+      ]
+  in
+    Text.concat
+    [ _topHeader obj
+    , Text.pack ("\n" ++ makeName ++ " = function(_elm){\n")
+    , _fnHeader obj
+    , Text.concat $ map snd $ _fnDefs obj
+    , Text.concat
+      [ valuesName
+      , Text.pack " = "
+      , valuesList
+      , Text.pack $ "\nreturn "
+      ,valuesName
+      , Text.pack ";"
+      ]
+    , Text.pack "};"
+    ]
