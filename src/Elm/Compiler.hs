@@ -130,16 +130,20 @@ data Result = Result
     , _js :: Object
     }
 
+
+-- JavaScript as it is stored on disk
+-- This format allows us to remove unused functions from imported modules,
+-- as well as helping with inlining 
 data Object = Object
     { _topHeader :: Text.Text
     , _fnHeader :: Text.Text
-    --, _fnFooter :: Text.Text
     , _fnDefs :: [(String, Text.Text )]
     , _fnRefGraph :: [(([String], String), [([String], String)])]
     , _objModule :: PublicModule.Name 
-    } deriving (Show)
+    }
 
 
+-- Store Objects on disk, encoding Text as UTF8
 instance Binary.Binary Object where
   put o =
     do  let (PublicModule.Name names) = _objModule o
@@ -235,6 +239,10 @@ warningToJson (Dealiaser dealiaser) location (Warning err) =
     Warning.toJson dealiaser location err
 
 
+-- Given a list of used module names and their reference graphs
+-- and the target module being compiled,
+-- return the list of all names in the given modules
+-- which the target module depends on
 getUsedDefs
   :: [(PublicModule.Name, [(([String], String), [([String], String)])])]
   -> [(PublicModule.Name, PublicModule.Interface)]
@@ -259,8 +267,20 @@ getUsedDefs refGraphs startIfaces =
 
     alwaysUsed =
         [ (["Signal"], Var.Value "constant" )
+        , (["Signal"], Var.Value "output" )
+        , (["Signal"], Var.Value "map" )
+        , (["Signal"], Var.Value "filter" )
         , (["Maybe"], Var.Value "Nothing" )
         , (["Maybe"], Var.Value "Just" )
+        , (["Result"], Var.Value "Err" )
+        , (["Result"], Var.Value "Ok" )
+        , (["Char"], Var.Value "isDigit" )
+        , (["Array"], Var.Value "toList" )
+        , (["Dict"], Var.Value "toList" )
+        , (["List"], Var.Value "map" )
+        , (["Transform"], Var.Value "matrix" )
+        , (["Transform"], Var.Value "multiply" )
+        , (["Transform"], Var.Value "rotation" )
         ]
 
     reachableImports =
@@ -268,6 +288,10 @@ getUsedDefs refGraphs startIfaces =
   in
     Set.fromList reachableImports
 
+
+-- Given a set of module-qualified names
+-- Remove any top-level definitions from the module
+-- which are not in the set 
 cleanObject
   :: Set.Set ([String], String)
   -> Object

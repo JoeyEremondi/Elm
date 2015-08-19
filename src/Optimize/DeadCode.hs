@@ -143,10 +143,10 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
       Crash _ ->
         Map.empty
     
-      (Literal _) ->
+      Literal _ ->
         Map.empty
     
-      (Var v) ->
+      Var v ->
         case Var.home v of
           Var.Local ->
             case Map.lookup v env of
@@ -162,16 +162,16 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
           _ -> 
             Map.fromList [( ExprNode currentDef, Set.singleton $ ExternalVar v)]
           
-      (Range sub1 sub2) ->
+      Range sub1 sub2 ->
         self sub1 `graphUnion` self sub2
 
-      (ExplicitList subs) ->
+      ExplicitList subs ->
         unionMap self subs
 
-      (Binop _op arg1 arg2) ->
+      Binop _op arg1 arg2 ->
         self arg1 `graphUnion` self arg2
 
-      (Lambda pat arg) -> 
+      Lambda pat arg -> 
         let
           newEnv =
             foldr
@@ -188,14 +188,14 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
           (makeRefGraph thisModule newEnv currentDef arg)
           `graphUnion` insertVarsGraph
 
-      (App sub1 sub2) ->
+      App sub1 sub2 ->
         self sub1 `graphUnion` self sub2
 
-      (MultiIf branches finalBranch) ->
+      MultiIf branches finalBranch ->
         unionMap (\ (c, e) -> self c `graphUnion` self e ) branches
         `graphUnion` self finalBranch
 
-      (Let defs body) -> 
+      Let defs body -> 
         let
           defPairs  =
             [(v, (exprIdent patAnn, exprRegion patAnn)) |
@@ -235,7 +235,7 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
           `graphUnion` insertVarsGraph
         
 
-      (Case cexp branches) ->
+      Case cexp branches ->
         let
           cexpEdges =
             self cexp
@@ -261,34 +261,34 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
          `graphUnion` (unionMap branchEdges branches)
          `graphUnion` insertVarsGraph
 
-      (Data _ctor args) ->
+      Data _ctor args ->
         unionMap self args
 
-      (Access recExp _) ->
+      Access recExp _ ->
         self recExp
 
-      (Remove recExp _) ->
+      Remove recExp _ ->
         self recExp
 
-      (Insert recExp _ newExp) ->
+      Insert recExp _ newExp ->
         self recExp `graphUnion` self newExp
 
-      (Modify recExp subs) ->
+      Modify recExp subs ->
         self recExp `graphUnion` unionMap self (map snd subs)
 
-      (Record fieldPairs) ->
+      Record fieldPairs ->
         unionMap self $ map snd fieldPairs
 
-      (Port (In _ _)) ->
+      Port (In _ _) ->
         Map.empty
 
-      (Port (Out _ subEx _)) ->
+      Port (Out _ subEx _) ->
         self subEx
 
-      (Port (Task _ subEx _)) ->
+      Port (Task _ subEx _) ->
         self subEx
 
-      (GLShader _ _ _ ) ->
+      GLShader _ _ _ ->
         Map.empty
 
 
@@ -389,6 +389,10 @@ dropAnnotation (A.A facts expr ) =
       Crash e ->
         Crash e
 
+-- Create a list, pairing variables, the unique identifier of the expression on their RHS
+-- and the region of code they lie in
+makeDefPairs (Def pat (A.A subAnn _) _ ) =
+  [(v, (exprIdent subAnn, exprRegion pFacts)) | (v, pFacts) <- patternVars pat]
 
 
 topLevelNames :: Module.Name -> DCEExpr -> [RefNode]
@@ -399,10 +403,6 @@ topLevelNames thisModule (A.A _ e) =
 
     Let defs expr ->
       let
-        --TODO avoid duplication
-        makeDefPairs (Def pat (A.A subAnn _) _ ) =
-          [(v, (exprIdent subAnn, exprRegion pFacts)) | (v, pFacts) <- patternVars pat]
-
         defPairs =
           concatMap makeDefPairs defs
 
@@ -430,9 +430,6 @@ traverseTopLevels thisModule env (A.A _ e) =
 
     Let defs body ->
       let
-        makeDefPairs (Def pat (A.A subAnn _) _ ) =
-          [(v, (exprIdent subAnn, exprRegion pFacts)) | (v, pFacts) <- patternVars pat]
-
         defPairs =
           concatMap makeDefPairs defs
 

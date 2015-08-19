@@ -96,6 +96,7 @@ toReport dealiaser warning =
           "redundant pattern"
           "The following pattern is redundant."
           "Any value with this shape will be handled by a previous pattern."
+
           
 -- TO JSON
 

@@ -29,7 +29,7 @@ type Interface = Module.Interface
 
 
 newtype Name = Name [String]
-    deriving (Eq, Ord, Show, Read)
+    deriving (Eq, Ord)
 
 
 defaultImports :: [Name]
