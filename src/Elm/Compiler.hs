@@ -17,6 +17,7 @@ import qualified Data.Set as Set
 import qualified Data.Maybe as Maybe
 
 import qualified AST.Module as Module
+import qualified AST.Variable as Var
 import qualified Compile
 import qualified Docs.Check as Docs
 import qualified Elm.Compiler.Module as PublicModule
@@ -31,8 +32,6 @@ import qualified Reporting.Error as Error
 import qualified Reporting.PrettyPrint as P
 import qualified Reporting.Result as Result
 import qualified Reporting.Warning as Warning
-
-import qualified AST.Variable as Var
 
 import qualified Optimize.DeadCode as DCE
 
@@ -141,7 +140,7 @@ data Object = Object
     , _fnHeader :: Text.Text
     , _fnFooter :: Text.Text
     , _fnDefs :: [(String, Text.Text )]
-    , _fnRefGraph :: [(Var.Canonical, [Var.Canonical])]
+    , _fnRefGraph :: [(([String], String), [([String], String)])]
     , _objModule :: PublicModule.Name 
     } deriving (Show)
 
@@ -250,27 +249,34 @@ warningToJson (Dealiaser dealiaser) location (Warning err) =
 
 
 getUsedDefs
-  :: [(PublicModule.Name, [(Var.Canonical, [Var.Canonical])])]
+  :: [(PublicModule.Name, [(([String], String), [([String], String)])])]
   -> [(PublicModule.Name, PublicModule.Interface)]
-  -> Set.Set Var.Canonical
+  -> Set.Set ([String], String)
 getUsedDefs refGraphs startIfaces =
   let
     exports =
       [(nm, exprt) | (PublicModule.Name nm, iface ) <- startIfaces, exprt <- Module.iExports iface]
         ++ alwaysUsed
         ++ [(nm, Var.Value "main") | (PublicModule.Name nm, _ ) <- startIfaces]
+
     unValue (nm, v) =
       case v of
-        Var.Value s -> Just $ Var.Canonical (Var.Module nm ) s
+        Var.Value s -> Just (nm, s)
         _ -> Nothing
-    stringValues = Maybe.catMaybes $ map unValue exports
-    nameGraphs = map (\(PublicModule.Name nm, x) -> (nm, x) ) refGraphs
+
+    stringValues =
+      Maybe.catMaybes $ map unValue exports
+
+    nameGraphs =
+      map (\(PublicModule.Name nm, x) -> (nm, x) ) refGraphs
+
     alwaysUsed =
         [ (["Signal"], Var.Value "constant" )
         , (["Maybe"], Var.Value "Nothing" )
         , (["Maybe"], Var.Value "Just" )
         ]
-    reachableImports = DCE.reachableImports nameGraphs stringValues
+    reachableImports =
+      DCE.reachableImports nameGraphs stringValues
   in
     Set.fromList reachableImports
 

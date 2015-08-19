@@ -1,12 +1,9 @@
-
 module Optimize.DeadCode where
 
 import AST.Expression.General
 import qualified AST.Variable as Var
 import qualified AST.Pattern as Pat
 import qualified AST.Module as Module
---import qualified AST.Traversals as ASTT
---import qualified AST.Expression.Canonical as Canon
 import qualified AST.Expression.Canonical as Can
 import qualified AST.Expression.General as Gen
 import qualified AST.Type as Type
@@ -24,11 +21,22 @@ import qualified Data.Graph as G
 import qualified Data.Tree as Tree
 
 import qualified Control.Monad.State as State
-
-import Control.Monad (forM, mapM, forM_)
+import Control.Monad (forM, forM_)
 import Control.Applicative ((<$>), (<*>), pure )
 
-import Debug.Trace (trace)
+
+type DCEExpr = Gen.Expr ExprFacts Def Var.Canonical Type.Canonical
+
+type DCEExpr' = Gen.Expr' ExprFacts Def Var.Canonical Type.Canonical
+
+
+type DCEPat = Pat.Pattern ExprFacts Var.Canonical
+
+
+data Def
+    = Def DCEPat DCEExpr (Maybe (A.Located Type.Canonical))
+    deriving (Show)
+
 
 data RefNode =
     ExternalVar Var.Canonical
@@ -88,13 +96,18 @@ insertEdge ident newEdge dict =
 insertEdges :: RefNode -> (Set.Set RefNode) -> RefGraph -> RefGraph
 insertEdges ident newEdges dict =
   case Map.lookup ident dict of
-    Nothing -> Map.insert ident newEdges dict 
-    Just oldEdges -> Map.insert ident (Set.union newEdges oldEdges) dict
+    Nothing ->
+      Map.insert ident newEdges dict 
+
+    Just oldEdges ->
+      Map.insert ident (Set.union newEdges oldEdges) dict
 
 
 graphUnion :: RefGraph -> RefGraph -> RefGraph
 graphUnion g h =
-  foldr (\(node,edgeSet) currentGraph -> insertEdges node edgeSet currentGraph ) g $ Map.toList h
+  foldr
+  (\(node,edgeSet) currentGraph -> insertEdges node edgeSet currentGraph )
+  g $ Map.toList h
 
 
 unionMap :: (a -> RefGraph) -> [a] -> RefGraph
@@ -102,22 +115,10 @@ unionMap f inList =
   foldr graphUnion Map.empty $ map f inList
 
 
-
 insertNode :: RefNode -> RefGraph
-insertNode n = Map.fromList [(n, Set.empty)]
+insertNode n =
+  Map.fromList [(n, Set.empty)]
 
-
-type DCEExpr = Gen.Expr ExprFacts Def Var.Canonical Type.Canonical
-
-type DCEExpr' = Gen.Expr' ExprFacts Def Var.Canonical Type.Canonical
-
-
-type DCEPat = Pat.Pattern ExprFacts Var.Canonical
-
-
-data Def
-    = Def DCEPat DCEExpr (Maybe (A.Located Type.Canonical))
-    deriving (Show)
 
 {- Constructing the refernce graph:
 An expression refers to any variables it contains,
@@ -133,147 +134,162 @@ and assume that every variable in the expression being matched
 is referenced by the body of each branch of the case statement.
 -}
 makeRefGraph :: Module.Name -> RefEnv -> Int -> DCEExpr  -> RefGraph
-makeRefGraph thisModule env currentDef (A.A ann expr) = 
-  case expr of
-    Crash _ ->
-      Map.empty
+makeRefGraph thisModule env currentDef (A.A ann expr) =
+  let
+    self =
+      makeRefGraph thisModule env currentDef
+  in
+    case expr of
+      Crash _ ->
+        Map.empty
     
-    (Literal _) ->
-      Map.empty
+      (Literal _) ->
+        Map.empty
     
-    (Var v) ->
-      case Var.home v of
-        Var.Local ->
-          case Map.lookup v env of
-            Just info ->
-              Map.fromList
-                [(ExprNode currentDef,
-                  Set.singleton $ InternalVar v info)]
-            _ ->
-              error $
-                "In module " ++ (show thisModule )
-                ++ "\nVar " ++ (show v)
-                ++ " not in env " ++ show env
-                ++ "\nCurrent def: " ++ show currentDef
-        Var.Module someMod | someMod == thisModule ->
-          case Map.lookup v env of
-            Just info ->
-              Map.fromList [(ExprNode currentDef, Set.singleton $ InternalVar v info)]
-        _ -> 
-          Map.fromList [( ExprNode currentDef, Set.singleton $ ExternalVar v)]
+      (Var v) ->
+        case Var.home v of
+          Var.Local ->
+            case Map.lookup v env of
+              Just info ->
+                Map.fromList
+                  [(ExprNode currentDef,
+                    Set.singleton $ InternalVar v info)]
+
+          Var.Module someMod | someMod == thisModule ->
+            case Map.lookup v env of
+              Just info ->
+                Map.fromList [(ExprNode currentDef, Set.singleton $ InternalVar v info)]
+          _ -> 
+            Map.fromList [( ExprNode currentDef, Set.singleton $ ExternalVar v)]
           
-    (Range sub1 sub2) ->
-      self sub1 `graphUnion` self sub2
+      (Range sub1 sub2) ->
+        self sub1 `graphUnion` self sub2
 
-    (ExplicitList subs) ->
-      unionMap self subs
+      (ExplicitList subs) ->
+        unionMap self subs
 
-    (Binop _op arg1 arg2) ->
-      self arg1 `graphUnion` self arg2
+      (Binop _op arg1 arg2) ->
+        self arg1 `graphUnion` self arg2
 
-    (Lambda pat arg) -> 
-      let
-        newEnv =
-          foldr (\(v, varAnn) currentEnv -> Map.insert v (exprIdent varAnn, exprRegion varAnn) currentEnv ) env $ patternVars pat
-        patPairs =
-          [(v, (exprIdent patAnn, exprRegion patAnn)) | (v,patAnn) <- patternVars pat ]
-        insertVarsGraph =
-          unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) $ patPairs
-      in
-        (makeRefGraph thisModule newEnv currentDef arg)
-        `graphUnion` insertVarsGraph
+      (Lambda pat arg) -> 
+        let
+          newEnv =
+            foldr
+            (\(v, varAnn) currentEnv ->
+              Map.insert v (exprIdent varAnn, exprRegion varAnn) currentEnv )
+            env $ patternVars pat
 
-    (App sub1 sub2) ->
-      self sub1 `graphUnion` self sub2
+          patPairs =
+            [(v, (exprIdent patAnn, exprRegion patAnn)) | (v,patAnn) <- patternVars pat ]
 
-    (MultiIf branches finalBranch) ->
-      unionMap (\ (c, e) -> self c `graphUnion` self e ) branches
-      `graphUnion` self finalBranch
+          insertVarsGraph =
+            unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) $ patPairs
+        in
+          (makeRefGraph thisModule newEnv currentDef arg)
+          `graphUnion` insertVarsGraph
 
-    (Let defs body) -> 
-      let
-        defPairs  =
-          [(v, (exprIdent patAnn, exprRegion patAnn)) |
-             (Def pat _ _ ) <- defs
-             , (v, patAnn) <- patternVars pat]
-        defExpr (Def _ rhs _ ) = rhs
-        newEnv = 
-          foldr (\(v, ident) currentEnv ->
-                  Map.insert v ident currentEnv) env
-                defPairs
-        defEdges =
-          unionMap (\rhs@(A.A subAnn _ ) ->
-                     makeRefGraph thisModule newEnv (exprIdent subAnn) rhs )
-                   (map defExpr defs)
-        patToRHSEdges =
-          unionMap (\(v, (rhsId, reg )) ->
-                     Map.fromList [(InternalVar v (rhsId, reg ), Set.singleton $ DefNode rhsId)] )
-          defPairs
-        insertRHSGraph =
-          insertNode $ DefNode $ exprIdent ann
-        insertVarsGraph =
-          unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) defPairs
-        bodyEdges = makeRefGraph thisModule newEnv currentDef body
-      in
-        defEdges
-        `graphUnion` bodyEdges
-        `graphUnion` patToRHSEdges
-        `graphUnion` insertRHSGraph
-        `graphUnion` insertVarsGraph
+      (App sub1 sub2) ->
+        self sub1 `graphUnion` self sub2
+
+      (MultiIf branches finalBranch) ->
+        unionMap (\ (c, e) -> self c `graphUnion` self e ) branches
+        `graphUnion` self finalBranch
+
+      (Let defs body) -> 
+        let
+          defPairs  =
+            [(v, (exprIdent patAnn, exprRegion patAnn)) |
+               (Def pat _ _ ) <- defs
+               , (v, patAnn) <- patternVars pat]
+
+          defExpr (Def _ rhs _ ) = rhs
+
+          newEnv = 
+            foldr (\(v, ident) currentEnv ->
+                    Map.insert v ident currentEnv) env
+                  defPairs
+
+          defEdges =
+            unionMap (\rhs@(A.A subAnn _ ) ->
+                       makeRefGraph thisModule newEnv (exprIdent subAnn) rhs )
+                     (map defExpr defs)
+
+          patToRHSEdges =
+            unionMap (\(v, (rhsId, reg )) ->
+                       Map.fromList [(InternalVar v (rhsId, reg ), Set.singleton $ DefNode rhsId)] )
+            defPairs
+
+          insertRHSGraph =
+            insertNode $ DefNode $ exprIdent ann
+
+          insertVarsGraph =
+            unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) defPairs
+
+          bodyEdges =
+            makeRefGraph thisModule newEnv currentDef body
+        in
+          defEdges
+          `graphUnion` bodyEdges
+          `graphUnion` patToRHSEdges
+          `graphUnion` insertRHSGraph
+          `graphUnion` insertVarsGraph
         
 
-    (Case cexp branches) ->
-      let
-        cexpEdges = self cexp
-        patPairs =
-          concatMap (\(pat, _) ->
-            [(v, (exprIdent patAnn, exprRegion patAnn)) | (v,patAnn) <- patternVars pat ] )
-            branches
-        subEnv pat =
-          (foldr (\ (x, patAnn) currentEnv ->
-                   Map.insert x (exprIdent ann, exprRegion patAnn) currentEnv ) env $
-                    patternVars pat )
-        branchEdges (pat, bexpr) =
-          makeRefGraph thisModule (subEnv pat) currentDef bexpr
-        insertVarsGraph =
-          unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) $ patPairs
+      (Case cexp branches) ->
+        let
+          cexpEdges =
+            self cexp
+
+          patPairs =
+            concatMap (\(pat, _) ->
+              [(v, (exprIdent patAnn, exprRegion patAnn)) | (v,patAnn) <- patternVars pat ] )
+              branches
+
+          subEnv pat =
+            (foldr (\ (x, patAnn) currentEnv ->
+                     Map.insert x (exprIdent ann, exprRegion patAnn) currentEnv ) env $
+                      patternVars pat )
+
+          branchEdges (pat, bexpr) =
+            makeRefGraph thisModule (subEnv pat) currentDef bexpr
+
+          insertVarsGraph =
+            unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) $ patPairs
           
-      in
-       cexpEdges
-       `graphUnion` (unionMap branchEdges branches)
-       `graphUnion` insertVarsGraph
+        in
+         cexpEdges
+         `graphUnion` (unionMap branchEdges branches)
+         `graphUnion` insertVarsGraph
 
-    (Data _ctor args) ->
-      unionMap self args
+      (Data _ctor args) ->
+        unionMap self args
 
-    (Access recExp _) ->
-      self recExp
+      (Access recExp _) ->
+        self recExp
 
-    (Remove recExp _) ->
-      self recExp
+      (Remove recExp _) ->
+        self recExp
 
-    (Insert recExp _ newExp) ->
-      self recExp `graphUnion` self newExp
+      (Insert recExp _ newExp) ->
+        self recExp `graphUnion` self newExp
 
-    (Modify recExp subs) ->
-      self recExp `graphUnion` unionMap self (map snd subs)
+      (Modify recExp subs) ->
+        self recExp `graphUnion` unionMap self (map snd subs)
 
-    (Record fieldPairs) ->
-      unionMap self $ map snd fieldPairs
+      (Record fieldPairs) ->
+        unionMap self $ map snd fieldPairs
 
-    (Port (In _ _)) ->
-      Map.empty
+      (Port (In _ _)) ->
+        Map.empty
 
-    (Port (Out _ subEx _)) ->
-      self subEx
+      (Port (Out _ subEx _)) ->
+        self subEx
 
-    (Port (Task _ subEx _)) ->
-      self subEx
+      (Port (Task _ subEx _)) ->
+        self subEx
 
-    (GLShader _ _ _ ) ->
-      Map.empty
-      
-  where self = makeRefGraph thisModule env currentDef
+      (GLShader _ _ _ ) ->
+        Map.empty
 
 
 dropPatAnnotation :: DCEPat -> Pat.CanonicalPattern
@@ -303,8 +319,7 @@ dropDefAnnotation :: Def -> Can.Def
 dropDefAnnotation (Def pat expr tp ) =
   Can.Definition (dropPatAnnotation pat) (dropAnnotation expr) tp
 
-dropAnnotation ::
-  DCEExpr -> Can.Expr
+dropAnnotation :: DCEExpr -> Can.Expr
 dropAnnotation (A.A facts expr ) =
   A.A (exprRegion facts ) $
     case expr of
@@ -330,13 +345,16 @@ dropAnnotation (A.A facts expr ) =
         App (dropAnnotation e1) (dropAnnotation e2)
 
       MultiIf e1 e2 ->
-        MultiIf (map (\(x,y) -> (dropAnnotation x, dropAnnotation y)) e1) (dropAnnotation e2)
+        MultiIf (map (\(x,y) ->
+                       (dropAnnotation x, dropAnnotation y)) e1) (dropAnnotation e2)
 
       Let defs e2 ->
         Let (map dropDefAnnotation defs ) (dropAnnotation e2 )
 
       Case e1 e2 ->
-        Case (dropAnnotation e1) $ map (\(x,y) -> (dropPatAnnotation x, dropAnnotation y) ) e2
+        Case (dropAnnotation e1) $
+          map (\(x,y) ->
+                (dropPatAnnotation x, dropAnnotation y) ) e2
 
       Data e1 e2 ->
         Data e1 $ map dropAnnotation e2
@@ -372,33 +390,29 @@ dropAnnotation (A.A facts expr ) =
         Crash e
 
 
-localizeVar thisModule v = case v of
-  Var.Canonical Var.Local nm ->
-    Var.Canonical (Var.Module thisModule) nm
-  _ -> v
 
-
---topLevelNames
--- :: Module.Name
--- -> DCEExpr
--- -> [Var.Canonical]
+topLevelNames :: Module.Name -> DCEExpr -> [RefNode]
 topLevelNames thisModule (A.A _ e) =
   case e of
     Var (Var.Canonical Var.BuiltIn nm) | nm == saveEnvName ->
       []
+
     Let defs expr ->
       let
         --TODO avoid duplication
         makeDefPairs (Def pat (A.A subAnn _) _ ) =
           [(v, (exprIdent subAnn, exprRegion pFacts)) | (v, pFacts) <- patternVars pat]
+
         defPairs =
           concatMap makeDefPairs defs
+
         subNames =
           topLevelNames thisModule expr
+
         defNodes = map (\(v, pr) -> InternalVar v pr) defPairs
       in
-        subNames ++
-        defNodes
+        subNames ++ defNodes
+
     _ ->
       error "Shouldn't have non Let in top-level structure"  
 
@@ -413,27 +427,38 @@ traverseTopLevels thisModule env (A.A _ e) =
   case e of
     Var (Var.Canonical Var.BuiltIn nm) | nm == saveEnvName ->
       Map.empty
+
     Let defs body ->
       let
         makeDefPairs (Def pat (A.A subAnn _) _ ) =
           [(v, (exprIdent subAnn, exprRegion pFacts)) | (v, pFacts) <- patternVars pat]
+
         defPairs =
           concatMap makeDefPairs defs
+
         defBodies =
-          map (\(Def _ rhs@(A.A subAnn _) _ ) -> (rhs, exprIdent subAnn) ) defs 
+          map (\(Def _ rhs@(A.A subAnn _) _ )
+               -> (rhs, exprIdent subAnn) ) defs 
+
         initialEnv =
-          List.foldr (\(v, pr ) currentEnv -> Map.insert v pr currentEnv  ) env defPairs
+          List.foldr (\(v, pr ) currentEnv
+                      -> Map.insert v pr currentEnv  ) env defPairs
+
         bodyGraph =
           traverseTopLevels thisModule initialEnv body
+
         defGraphs =
-          unionMap (\(bdy,ident) -> makeRefGraph thisModule initialEnv ident bdy) defBodies
+          unionMap (\(bdy,ident)
+                    -> makeRefGraph thisModule initialEnv ident bdy) defBodies
         --Edges from our initial node to exported names
+
         initialEdges =
           unionMap
             (\(v, pr) ->
               Map.insert InitialNode (Set.singleton $ InternalVar v pr) Map.empty )
             defPairs
         --Edges from each defined name to the expression defining its value
+
         nameEdges =
           unionMap
             (\(v, (ident, reg)) ->
@@ -452,7 +477,7 @@ traverseTopLevels thisModule env (A.A _ e) =
     _ ->
       error "Shouldn't have non Let in top-level structure"  
 
---TODO: is ExportedIdent wrong?               
+
 moduleRefGraph
   :: Module.Name
   -> DCEExpr
@@ -461,36 +486,44 @@ moduleRefGraph thisModule e =
   let
     rawEdgeGraph =
       traverseTopLevels thisModule Map.empty e
+
     --We need to add nodes that only occur in edges
     allNodes =
       (Set.fromList $ Map.keys rawEdgeGraph)
         `Set.union`
         (Set.unions $ Map.elems rawEdgeGraph)
+
     edgeGraph =
       Set.foldr (\n mapSoFar ->
                   if (Map.member n mapSoFar )
                   then mapSoFar
                   else Map.insert n Set.empty mapSoFar ) rawEdgeGraph allNodes
+
     (nodes, sets) =
       unzip $ Map.toList edgeGraph
+
     edgeLists =
       map Set.toList sets
+
     graphAsList =
       zip3 nodes nodes edgeLists
+
     (ggraph, getNode , getInt) =
       G.graphFromEdges graphAsList
-  in (ggraph, (\(x,_,z) -> (x,z) ) . getNode, getInt, edgeGraph)
+  in
+    (ggraph, (\(x,_,z) -> (x,z) ) . getNode, getInt, edgeGraph)
 
 
 addDefIdent :: Can.Def -> State.State Int Def
 addDefIdent (Can.Definition pat expr tp) =
   do  nextInt <- State.get
       State.put (nextInt + 1)
-
       Def <$> addPatIdent pat <*> addUniqueIdent expr <*> pure tp
 
 
-addPortIdent :: PortImpl Can.Expr t -> State.State Int (PortImpl DCEExpr t)
+addPortIdent
+  :: PortImpl Can.Expr t
+  -> State.State Int (PortImpl DCEExpr t)
 addPortIdent portImpl =
     case portImpl of 
       In p1 p2 ->
@@ -505,7 +538,9 @@ addPortIdent portImpl =
         return $ Task p1 newExpr p3
 
 
-addPatIdent :: Pat.CanonicalPattern -> State.State Int DCEPat
+addPatIdent
+  :: Pat.CanonicalPattern
+  -> State.State Int DCEPat
 addPatIdent (A.A reg pat) =
   do  innerPat <-
         case pat of
@@ -533,100 +568,95 @@ addPatIdent (A.A reg pat) =
 
 addUniqueIdent :: Can.Expr -> State.State Int DCEExpr
 addUniqueIdent (A.A reg e) =
-  do let
-       self = addUniqueIdent
+  do let self = addUniqueIdent
 
-       newExprM :: State.State Int DCEExpr'
-       newExprM =
-         case e of
-           Literal l ->
-             return $ Literal l
+         newExprM =
+           case e of
+             Literal l ->
+               return $ Literal l
          
-           Var v ->
-             return $ Var v
+             Var v ->
+               return $ Var v
          
-           Range start end ->
-             Range <$> self start <*> self end
+             Range start end ->
+               Range <$> self start <*> self end
          
-           ExplicitList subList ->
-             ExplicitList <$> forM subList self
+             ExplicitList subList ->
+               ExplicitList <$> forM subList self
          
-           Binop op arg1 arg2 ->
-             (Binop op) <$> self arg1 <*> self arg2
+             Binop op arg1 arg2 ->
+               (Binop op) <$> self arg1 <*> self arg2
          
-           Lambda pat body -> 
-             do  newPat <- addPatIdent pat
-                 Lambda newPat <$> self body
+             Lambda pat body -> 
+               do  newPat <- addPatIdent pat
+                   Lambda newPat <$> self body
          
-           App fn arg ->
-             App <$> self fn <*> self arg
+             App fn arg ->
+               App <$> self fn <*> self arg
          
-           MultiIf pairs final ->
-             do let (conds, exprs) = unzip pairs
-                newConds <- forM conds self
-                newExprs <- forM exprs self
-                newFinal <- self final
-                return $ MultiIf (zip newConds newExprs) newFinal
+             MultiIf pairs final ->
+               do let (conds, exprs) = unzip pairs
+                  newConds <- forM conds self
+                  newExprs <- forM exprs self
+                  newFinal <- self final
+                  return $ MultiIf (zip newConds newExprs) newFinal
            
-           Let defs body ->
-             do newDefs <- forM defs addDefIdent
-                newBody <- self body
-                return $ Let newDefs newBody
+             Let defs body ->
+               do newDefs <- forM defs addDefIdent
+                  newBody <- self body
+                  return $ Let newDefs newBody
            
-           Case cexp branches ->
-             do  let (pats, branchExps) = unzip branches
-                 newPats <- forM pats addPatIdent
-                 newCexp <- self cexp
-                 newExps <- forM branchExps self
-                 return $ Case newCexp $ zip newPats newExps
+             Case cexp branches ->
+               do  let (pats, branchExps) = unzip branches
+                   newPats <- forM pats addPatIdent
+                   newCexp <- self cexp
+                   newExps <- forM branchExps self
+                   return $ Case newCexp $ zip newPats newExps
            
-           Data ctor args ->
-             (Data ctor) <$> forM args self
+             Data ctor args ->
+               (Data ctor) <$> forM args self
          
-           Access recExp field ->
-             Access <$> self recExp <*> return field
+             Access recExp field ->
+               Access <$> self recExp <*> return field
          
-           Remove recExp field ->
-             Remove <$> self recExp <*> return field
+             Remove recExp field ->
+               Remove <$> self recExp <*> return field
          
-           Insert recExp field arg ->
-             Insert <$> self recExp <*> return field <*> self arg
+             Insert recExp field arg ->
+               Insert <$> self recExp <*> return field <*> self arg
          
-           Modify recExp fieldPairs ->
-             do let (names, vals) = unzip fieldPairs
-                newVals <- forM vals self
-                newRec <- self recExp
-                return $ Modify newRec $ zip names newVals
+             Modify recExp fieldPairs ->
+               do let (names, vals) = unzip fieldPairs
+                  newVals <- forM vals self
+                  newRec <- self recExp
+                  return $ Modify newRec $ zip names newVals
            
-           Record pairs ->
-             do let (names, vals) = unzip pairs
-                newVals <- forM vals self
-                return $ Record $ zip names newVals
+             Record pairs ->
+               do let (names, vals) = unzip pairs
+                  newVals <- forM vals self
+                  return $ Record $ zip names newVals
            
-           Port sub ->
-             Port <$> addPortIdent sub
+             Port sub ->
+               Port <$> addPortIdent sub
          
-           GLShader a b c ->
-             return $ GLShader a b c
+             GLShader a b c ->
+               return $ GLShader a b c
 
-           Crash x ->
-             return $ Crash x
+             Crash x ->
+               return $ Crash x
          
      newExpr <- newExprM
      nextInt <- State.get
      State.put (nextInt + 1)
      return $ A.A (ExprFacts reg nextInt) newExpr
 
-showTop (A.A _ e) = case e of
-  Let defs body ->
-    show defs ++ " " ++ showTop body
-  _ -> ""
-
 
 analyzeModule
   :: Module.CanonicalModule
   -> Result.Result Warning.Warning Error.Error
-      ( Module.CanonicalModule, [(Var.Canonical, [Var.Canonical])])
+      ( Module.CanonicalModule,
+        [(([String], String),
+        [([String], String)])])
 analyzeModule modul = 
   let
     
@@ -647,7 +677,6 @@ analyzeModule modul =
     
     initialInts = 
       Maybe.catMaybes $ List.map getInt $ [InitialNode]
-    --TODO: fast way to do this with arrays?
 
     reachableNodes = 
       Set.fromList $ concatMap Tree.flatten $ G.dfs ggraph initialInts
@@ -669,52 +698,37 @@ analyzeModule modul =
         ExternalVar _ ->
           True
 
-        x -> x `elem` exportedNodes
+        x ->
+          x `elem` exportedNodes
 
     getNodeVar nd =
       case nd of
         ExternalVar v -> v
+
         InternalVar v _ -> v
 
-    getNodeAlone = fst . getNode
-    {-
-    myReachable v =
-      let
-        myDfs open closed =
-          if
-            Set.null open
-          then
-            closed
-          else
-            let
-              (u, openSansU) = Set.deleteFindMin open
-              uEdges =
-                case Map.lookup u rawGraph of
-                  Nothing ->
-                    Set.empty
-                  Just x -> x
-              newOpen =
-                openSansU
-                    `Set.union`
-                    (Set.filter (\x -> not $ Set.member x closed ) uEdges )
-            in
-              myDfs newOpen (Set.insert u closed )
-      in
-        Set.toList $ myDfs (Set.singleton v) Set.empty -}
+    getNodeAlone =
+      fst . getNode
 
     importRefsForNode vnode = 
       case (getInt vnode) of
-        --Nothing -> [] --TODO this case should be impossible
-
         Just vi ->
           List.map (getNodeVar . fst . getNode) $
             List.filter isTopLevelInt $ G.reachable ggraph vi
 
-    importExportRefs =
-       List.map (\vnode@(InternalVar v _ ) ->
-                                (localizeVar names v,
-                                 map (localizeVar names) $ importRefsForNode vnode) ) exportedNodes
+    varToPair thisModule v = case v of
+      Var.Canonical Var.Local nm ->
+        (thisModule, nm)
 
+      Var.Canonical (Var.Module names) nm ->
+        (names, nm)
+
+    importExportRefs =
+       List.map
+         (\vnode@(InternalVar v _ ) ->
+           (varToPair names v,
+            map (varToPair names) $ importRefsForNode vnode) ) exportedNodes
+       
     defIsReachable vnode =
       case (vnode, getInt vnode) of
         (ExprNode ident, Just varInt) ->
@@ -740,7 +754,6 @@ analyzeModule modul =
           , importExportRefs )
 
 
-
 removeUnusedDefs
   :: Set.Set Int
   -> DCEExpr
@@ -753,25 +766,19 @@ removeUnusedDefs usedDefs e@(A.A ann expr) =
           Set.member (exprIdent subAnn ) usedDefs
       in
         A.A ann $ Let (filter isUsed defs) body
-    _ -> e
+
+    _ ->
+      e
 
 
 reachableImports
-  :: [([String], [(Var.Canonical, [Var.Canonical])])]
-  -> [Var.Canonical]
-  -> [Var.Canonical]
+  :: [([String], [(([String], String), [([String], String)])])]
+  -> [([String], String)]
+  -> [([String], String)]
 reachableImports inputGraphs exposedNames =
   let
-    fixName modName var =
-      case var of
-        Var.Canonical Var.Local nm ->
-          Var.Canonical (Var.Module modName ) nm
-
-        _ ->
-          var
-    
     initialNode =
-      Var.Canonical Var.BuiltIn "--InitialNode"
+      ([], "--InitialNode")
 
     initialEdges =
       [(initialNode, initialNode, exposedNames )]
@@ -779,9 +786,7 @@ reachableImports inputGraphs exposedNames =
     graphEdges =
       do  (modulNames, edgeList) <- inputGraphs
           (inNode, outNodes) <- edgeList
-          let fixedInNode = fixName modulNames inNode
-              fixedOutNodes = map (fixName modulNames) outNodes
-          return $ (fixedInNode, fixedInNode, fixedOutNodes)
+          return $ (inNode, inNode, outNodes)
 
     (moduleGraph, vertFn, keyFn ) =
          G.graphFromEdges $ initialEdges ++ graphEdges
