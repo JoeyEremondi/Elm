@@ -16,7 +16,6 @@ import qualified Data.Set as Set
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as Text
 import qualified Data.Binary as Binary
-import qualified Data.ByteString as BS
 
 import Data.Text.Internal ( )
 
@@ -38,7 +37,7 @@ import qualified Reporting.PrettyPrint as P
 import qualified Reporting.Result as Result
 import qualified Reporting.Warning as Warning
 
-import Control.Applicative ((<$>), (<*>) )
+import Control.Applicative ((<$>) )
 import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 
 

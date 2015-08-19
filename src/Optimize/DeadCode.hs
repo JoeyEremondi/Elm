@@ -677,19 +677,15 @@ reachableImports inputGraphs exposedNames =
       [(initialNode, initialNode, exposedNames )]
 
     graphEdges =
-      do  (modulNames, edgeList) <- inputGraphs
+      do  (_, edgeList) <- inputGraphs
           (inNode, outNodes) <- edgeList
           return $ (inNode, inNode, outNodes)
 
     (moduleGraph, vertFn, keyFn ) =
          G.graphFromEdges $ initialEdges ++ graphEdges
-         
-
-    initialNodes =
-      map (Maybe.fromJust . keyFn) exposedNames
 
     reachableNodes =
       G.reachable moduleGraph (Maybe.fromJust $ keyFn initialNode)
       
   in
-    List.filter (/= initialNode) $ map ((\(x,y,z) -> x ) . vertFn) reachableNodes
+    List.filter (/= initialNode) $ map ((\(x,_,_) -> x ) . vertFn) reachableNodes
