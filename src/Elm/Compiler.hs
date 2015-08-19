@@ -99,12 +99,12 @@ compile context source interfaces =
       Map.mapKeysMonotonic (\(PublicModule.Name name) -> name) interfaces
 
     (Result.Result (dealiaser, warnings) rawResult) =
-      do  modul <- Compile.compile user packageName isRoot unwrappedInterfaces source
-          docs <- docsGen isExposed modul
+      do  initialModul <- Compile.compile user packageName isRoot unwrappedInterfaces source
+          (dceModul , dceInfo) <- DCE.analyzeModule initialModul
+          docs <- docsGen isExposed dceModul
 
-          let interface = Module.toInterface modul
-          let optModule = Optimize.optimize modul
-          (dceModul , dceInfo) <- DCE.analyzeModule optModule
+          let interface = Module.toInterface dceModul
+          let optModule = Optimize.optimize dceModul
           let (topHeader, fnHeader, fnDefs, fnFooter, modulName ) = JS.generate optModule
 
           return (Result docs interface $

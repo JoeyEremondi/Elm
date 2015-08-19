@@ -26,8 +26,9 @@ import qualified Generate.JavaScript.Variable as Var
 import qualified Optimize.Cases as Case
 import qualified Reporting.Annotation as A
 import qualified Reporting.Crash as Crash
-
 import qualified Data.Text as Text
+
+
 -- HELPERS
 
 internalImports :: Module.Name -> [VarDecl ()]
@@ -432,6 +433,7 @@ crushIfsHelp visitedBranches unvisitedBranches finally =
 
 -- DEFINITIONS
 
+
 --TODO safe to assume always a single name?
 topLevelDefToStatements :: Opt.Def -> State Int (String, [Statement ()])
 topLevelDefToStatements (Opt.Definition facts pattern@(A.A _ (P.Var nm)) expr) =
@@ -443,8 +445,6 @@ topLevelDefToStatements (Opt.Definition facts pattern@(A.A _ (P.Var nm)) expr) =
       Nothing -> do --TODO fix formatting
           retJS <- (defToStatementsHelp facts pattern =<< toJsExpr expr)
           return (nm, retJS )
-          
-
 defToStatements :: Opt.Def -> State Int [Statement ()]
 defToStatements def@(Opt.Definition facts pattern expr) =
     case Opt.tailRecursionDetails facts of
@@ -461,7 +461,7 @@ defToStatementsHelp
     -> P.Optimized
     -> Expression ()
     -> State Int [Statement ()]
-defToStatementsHelp facts annPattern@(A.A reg pattern) jsExpr =
+defToStatementsHelp facts annPattern@(A.A _ pattern) jsExpr =
   let
     define x =
       varDecl x jsExpr
@@ -510,10 +510,10 @@ defToStatementsHelp facts annPattern@(A.A reg pattern) jsExpr =
             return (VarDeclStmt () [define "_"] : defs')
         where
           vars = P.boundVarList annPattern
-          mkVar = A.A reg . localVar
+          mkVar = A.A () . localVar
           toDef y =
-            let expr = A.A reg $ Case (mkVar "_") [(annPattern, mkVar y)]
-                pat = A.A reg (P.Var y)
+            let expr = A.A () $ Case (mkVar "_") [(annPattern, mkVar y)]
+                pat = A.A () (P.Var y)
             in
                 defToStatements (Opt.Definition facts pat expr)
 
@@ -709,9 +709,9 @@ binop
     -> Opt.Expr
     -> Opt.Expr
     -> State Int Code
-binop func left@(A.A leftReg _) right
+binop func left right
   | func == Var.Canonical Var.BuiltIn "::" =
-      toCode (A.A leftReg (Data "::" [left,right]))
+      toCode (A.A () (Data "::" [left,right]))
 
   | func == forwardCompose =
       compose (collectLeftAssoc forwardCompose left right)

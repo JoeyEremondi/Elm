@@ -39,7 +39,7 @@ type CanonicalPattern =
 
 
 type Optimized =
-    Pattern R.Region Var.Canonical
+    Pattern () Var.Canonical
 
 
 list :: R.Position -> [RawPattern] -> RawPattern

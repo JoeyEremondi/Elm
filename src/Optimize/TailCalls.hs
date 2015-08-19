@@ -53,7 +53,6 @@ mapSnd func (x, a) =
 detectTailRecursion :: Can.Def -> Opt.Def
 detectTailRecursion (Can.Definition pattern expression _) =
     let
-        (A.A region _) = expression
         (args, body) =
             Expr.collectLambdas expression
 
@@ -70,12 +69,11 @@ detectTailRecursion (Can.Definition pattern expression _) =
         (Result isTailCall optExpr) =
             findTailCalls context body
 
-        --TODO where to get this region? 
         lambda x e =
-            A.A region (Lambda x e)
+            A.A () (Lambda x e)
     in
         Opt.Definition
-          (Opt.Facts (if isTailCall then fmap fst context else Nothing) (-1))
+          (Opt.Facts (if isTailCall then fmap fst context else Nothing))
           (removeAnnotations pattern)
           (foldr lambda optExpr (map removeAnnotations args))
 
@@ -86,7 +84,7 @@ type Context = Maybe (String, Int)
 
 
 findTailCalls :: Context -> Can.Expr -> Result Opt.Expr
-findTailCalls context annExpr@(A.A reg expression) =
+findTailCalls context annExpr@(A.A _ expression) =
   let
     keepLooking =
       findTailCalls context
@@ -98,7 +96,7 @@ findTailCalls context annExpr@(A.A reg expression) =
       -- this will never find tail calls, use this when you are working with
       -- expressions that cannot be turned into tail calls
   in
-  A.A reg <$>
+  A.A () <$>
   case expression of
     Literal lit ->
         pure (Literal lit)
@@ -142,8 +140,7 @@ findTailCalls context annExpr@(A.A reg expression) =
                 T.traverse justConvert args
 
             apply f arg =
-                --TODO which region?
-                App (A.A reg f) arg
+                App (A.A () f) arg
         in
             Result isTailCall (List.foldl' apply optFunc optArgs)
 
@@ -220,8 +217,8 @@ findTailCalls context annExpr@(A.A reg expression) =
 
 
 removeAnnotations :: P.CanonicalPattern -> P.Optimized
-removeAnnotations (A.A reg pattern) =
-  A.A reg $
+removeAnnotations (A.A _ pattern) =
+  A.A () $
     case pattern of
       P.Var x ->
           P.Var x

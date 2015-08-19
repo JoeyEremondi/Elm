@@ -7,7 +7,7 @@ import qualified AST.Pattern as Pat
 import qualified AST.Module as Module
 --import qualified AST.Traversals as ASTT
 --import qualified AST.Expression.Canonical as Canon
-import qualified AST.Expression.Optimized as Opt
+import qualified AST.Expression.Canonical as Can
 import qualified AST.Expression.General as Gen
 import qualified AST.Type as Type
 import qualified Reporting.Annotation as A
@@ -26,7 +26,7 @@ import qualified Data.Tree as Tree
 import qualified Control.Monad.State as State
 
 import Control.Monad (forM, mapM, forM_)
-import Control.Applicative ((<$>), (<*>) )
+import Control.Applicative ((<$>), (<*>), pure )
 
 import Debug.Trace (trace)
 
@@ -116,7 +116,7 @@ type DCEPat = Pat.Pattern ExprFacts Var.Canonical
 
 
 data Def
-    = Def Opt.Facts DCEPat DCEExpr
+    = Def DCEPat DCEExpr (Maybe (A.Located Type.Canonical))
     deriving (Show)
 
 {- Constructing the refernce graph:
@@ -194,9 +194,9 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
       let
         defPairs  =
           [(v, (exprIdent patAnn, exprRegion patAnn)) |
-             (Def _ pat _ ) <- defs
+             (Def pat _ _ ) <- defs
              , (v, patAnn) <- patternVars pat]
-        defExpr (Def _ _ rhs ) = rhs
+        defExpr (Def _ rhs _ ) = rhs
         newEnv = 
           foldr (\(v, ident) currentEnv ->
                   Map.insert v ident currentEnv) env
@@ -276,7 +276,7 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
   where self = makeRefGraph thisModule env currentDef
 
 
-dropPatAnnotation :: DCEPat -> Pat.Optimized
+dropPatAnnotation :: DCEPat -> Pat.CanonicalPattern
 dropPatAnnotation (A.A facts pat) =
   A.A (exprRegion facts ) $
     case pat of
@@ -299,12 +299,12 @@ dropPatAnnotation (A.A facts pat) =
         Pat.Literal p
 
 
-dropDefAnnotation :: Def -> Opt.Def
-dropDefAnnotation (Def facts pat expr ) =
-  Opt.Definition facts (dropPatAnnotation pat) (dropAnnotation expr)
+dropDefAnnotation :: Def -> Can.Def
+dropDefAnnotation (Def pat expr tp ) =
+  Can.Definition (dropPatAnnotation pat) (dropAnnotation expr) tp
 
 dropAnnotation ::
-  DCEExpr -> Opt.Expr
+  DCEExpr -> Can.Expr
 dropAnnotation (A.A facts expr ) =
   A.A (exprRegion facts ) $
     case expr of
@@ -389,7 +389,7 @@ topLevelNames thisModule (A.A _ e) =
     Let defs expr ->
       let
         --TODO avoid duplication
-        makeDefPairs (Def _ pat (A.A subAnn _) ) =
+        makeDefPairs (Def pat (A.A subAnn _) _ ) =
           [(v, (exprIdent subAnn, exprRegion pFacts)) | (v, pFacts) <- patternVars pat]
         defPairs =
           concatMap makeDefPairs defs
@@ -415,12 +415,12 @@ traverseTopLevels thisModule env (A.A _ e) =
       Map.empty
     Let defs body ->
       let
-        makeDefPairs (Def facts pat (A.A subAnn _) ) =
+        makeDefPairs (Def pat (A.A subAnn _) _ ) =
           [(v, (exprIdent subAnn, exprRegion pFacts)) | (v, pFacts) <- patternVars pat]
         defPairs =
           concatMap makeDefPairs defs
         defBodies =
-          map (\(Def _ _ rhs@(A.A subAnn _) ) -> (rhs, exprIdent subAnn) ) defs 
+          map (\(Def _ rhs@(A.A subAnn _) _ ) -> (rhs, exprIdent subAnn) ) defs 
         initialEnv =
           List.foldr (\(v, pr ) currentEnv -> Map.insert v pr currentEnv  ) env defPairs
         bodyGraph =
@@ -482,15 +482,15 @@ moduleRefGraph thisModule e =
   in (ggraph, (\(x,_,z) -> (x,z) ) . getNode, getInt, edgeGraph)
 
 
-addDefIdent :: Opt.Def -> State.State Int Def
-addDefIdent (Opt.Definition facts pat expr) =
+addDefIdent :: Can.Def -> State.State Int Def
+addDefIdent (Can.Definition pat expr tp) =
   do  nextInt <- State.get
       State.put (nextInt + 1)
-      let newFacts = facts {Opt.defIdent = nextInt}
-      Def newFacts <$> addPatIdent pat <*> addUniqueIdent expr
+
+      Def <$> addPatIdent pat <*> addUniqueIdent expr <*> pure tp
 
 
-addPortIdent :: PortImpl Opt.Expr t -> State.State Int (PortImpl DCEExpr t)
+addPortIdent :: PortImpl Can.Expr t -> State.State Int (PortImpl DCEExpr t)
 addPortIdent portImpl =
     case portImpl of 
       In p1 p2 ->
@@ -505,7 +505,7 @@ addPortIdent portImpl =
         return $ Task p1 newExpr p3
 
 
-addPatIdent :: Pat.Optimized -> State.State Int DCEPat
+addPatIdent :: Pat.CanonicalPattern -> State.State Int DCEPat
 addPatIdent (A.A reg pat) =
   do  innerPat <-
         case pat of
@@ -531,7 +531,7 @@ addPatIdent (A.A reg pat) =
       State.put (nextInt + 1)
       return $ A.A (ExprFacts reg nextInt) innerPat
 
-addUniqueIdent :: Opt.Expr -> State.State Int DCEExpr
+addUniqueIdent :: Can.Expr -> State.State Int DCEExpr
 addUniqueIdent (A.A reg e) =
   do let
        self = addUniqueIdent
@@ -624,9 +624,9 @@ showTop (A.A _ e) = case e of
 
 
 analyzeModule
-  :: Module.Optimized
+  :: Module.CanonicalModule
   -> Result.Result Warning.Warning Error.Error
-      ( Module.Optimized, [(Var.Canonical, [Var.Canonical])])
+      ( Module.CanonicalModule, [(Var.Canonical, [Var.Canonical])])
 analyzeModule modul = 
   let
     
