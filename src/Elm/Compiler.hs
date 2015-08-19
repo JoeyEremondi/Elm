@@ -113,7 +113,7 @@ compile context source interfaces =
     ( maybe dummyDealiaser Dealiaser dealiaser
     , map Warning warnings
     , Result.destruct (Left . map Error) Right rawResult
-    ) 
+    )
 
 
 data Context = Context
@@ -262,6 +262,7 @@ getUsedDefs refGraphs startIfaces =
         , (["Maybe"], Var.Value "Nothing" )
         , (["Maybe"], Var.Value "Just" )
         ]
+
     reachableImports =
       DCE.reachableImports nameGraphs stringValues
   in

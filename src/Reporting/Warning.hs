@@ -1,4 +1,3 @@
-
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Reporting.Warning where
@@ -61,7 +60,7 @@ toReport dealiaser warning =
           P.hang
             (P.text name <+> P.colon)
             4
-           (P.pretty dealiaser False inferredType)
+            (P.pretty dealiaser False inferredType)
 
     UnusedName v ->
       Report.simple
@@ -97,7 +96,7 @@ toReport dealiaser warning =
           "redundant pattern"
           "The following pattern is redundant."
           "Any value with this shape will be handled by a previous pattern."
-
+          
 -- TO JSON
 
 toJson :: P.Dealiaser -> FilePath -> A.Located Warning -> Json.Value
