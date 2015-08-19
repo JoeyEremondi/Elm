@@ -611,21 +611,22 @@ flattenLets defs lexpr@(A.A _ expr) =
       _ -> (defs, lexpr)
 
 
-generate :: Module.Optimized -> (Text.Text, Text.Text, [(String, Text.Text)], Text.Text, [String])
+generate :: Module.Optimized -> (Text.Text, Text.Text, [(String, Text.Text)], [String])
 generate modul =
   ( (Text.pack . show . prettyPrint) $ setup "Elm" (names ++ ["make"])
   , (Text.pack . show . prettyPrint) $ headerStmts
   , map (\(nm, js) -> (nm, (Text.pack . show . prettyPrint) js)) $ bodyDefs
-  , (Text.pack . show . prettyPrint) footerStmts
   , names)
     --show . prettyPrint $ setup "Elm" (names ++ ["make"]) ++
     --         [ assign ("Elm" : names ++ ["make"]) (function [localRuntime] programStmts) ]
   where
     names :: [String]
-    names = Module.names modul
+    names =
+      Module.names modul
 
     thisModule :: Expression ()
-    thisModule = obj (localRuntime : names ++ ["values"])
+    thisModule =
+      obj (localRuntime : names ++ ["values"])
 
     headerStmts =
       concat
@@ -634,10 +635,6 @@ generate modul =
         , [ IfSingleStmt () thisModule (ret thisModule) ]
         , [ VarDeclStmt () localVars ]
         ]
-
-    footerStmts =
-      [jsExports, ret thisModule ]
-
 
     localVars :: [VarDecl ()]
     localVars =
