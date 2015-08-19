@@ -43,7 +43,9 @@ import Control.Applicative ((<$>), (<*>) )
 import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 
 import qualified Data.Binary as Binary
+import qualified Data.ByteString as BS
 
+import Debug.Trace (trace)
 
 
 -- VERSION
@@ -113,11 +115,11 @@ compile context source interfaces =
                     , _fnFooter = fnFooter
                     , _fnRefGraph = dceInfo
                     , _objModule = PublicModule.Name modulName})
-  in
+  in 
     ( maybe dummyDealiaser Dealiaser dealiaser
     , map Warning warnings
     , Result.destruct (Left . map Error) Right rawResult
-    )
+    ) 
 
 
 data Context = Context
@@ -143,31 +145,38 @@ data Object = Object
     , _objModule :: PublicModule.Name 
     } deriving (Show)
 
+
 instance Binary.Binary Object where
   put o =
-    do  let (PublicModule.Name names ) = _objModule o
+    do  let (PublicModule.Name names) = _objModule o
+        Binary.put $ map (encodeUtf8 . Text.pack ) names
+        
         Binary.put $ encodeUtf8 $ _topHeader o
         Binary.put $ encodeUtf8 $ _fnHeader o
         Binary.put $ encodeUtf8 $ _fnFooter o
         Binary.put $ map (\(s, def ) ->
                            (encodeUtf8 $ Text.pack s, encodeUtf8 def ) ) $ _fnDefs o
         Binary.put $ map (\(vin, vouts) ->
-                           (encodeUtf8 $ Text.pack $ show vin, map (encodeUtf8 . Text.pack . show ) vouts ) ) $ _fnRefGraph o
-        Binary.put $ map (encodeUtf8 . Text.pack ) names
+                           (encodeUtf8 $ Text.pack $
+                            show vin, map (encodeUtf8 . Text.pack . show ) vouts ) ) $ _fnRefGraph o
+        
   get =
-    do  topH <- decodeUtf8 <$> Binary.get
+    do  modulList <- (Binary.get :: Binary.Get [BS.ByteString])
+        let modul = PublicModule.Name $ map ( Text.unpack . decodeUtf8) modulList
+        topH <- decodeUtf8 <$> Binary.get
         fnH <- decodeUtf8 <$> Binary.get
         fnF <- decodeUtf8 <$> Binary.get
-        defPairList <- Binary.get
+        defPairList <- (Binary.get :: Binary.Get [(BS.ByteString, BS.ByteString )])
         let unpackedDefs =
               map (\(tnm, tdef ) -> (Text.unpack $ decodeUtf8 tnm, decodeUtf8 tdef) ) defPairList
-        graphPairs <- Binary.get
+        graphPairs <- (Binary.get :: Binary.Get [(BS.ByteString, [BS.ByteString] )])
         let unpackedGraph = map (\(vin, vouts ) ->
                                 (read $ Text.unpack $ decodeUtf8 vin,
                                  map (read . Text.unpack . decodeUtf8 ) vouts ) ) graphPairs
-        modul <- map ((Text.unpack . decodeUtf8 )) <$> Binary.get
+        
+        
         return $
-          Object topH fnH fnF unpackedDefs unpackedGraph (PublicModule.Name modul)
+          Object topH fnH fnF unpackedDefs unpackedGraph modul
 
 docsGen
     :: Bool
@@ -248,14 +257,22 @@ getUsedDefs refGraphs startIfaces =
   let
     exports =
       [(nm, exprt) | (PublicModule.Name nm, iface ) <- startIfaces, exprt <- Module.iExports iface]
+        ++ alwaysUsed
+        ++ [(nm, Var.Value "main") | (PublicModule.Name nm, _ ) <- startIfaces]
     unValue (nm, v) =
       case v of
         Var.Value s -> Just $ Var.Canonical (Var.Module nm ) s
         _ -> Nothing
     stringValues = Maybe.catMaybes $ map unValue exports
     nameGraphs = map (\(PublicModule.Name nm, x) -> (nm, x) ) refGraphs
+    alwaysUsed =
+        [ (["Signal"], Var.Value "constant" )
+        , (["Maybe"], Var.Value "Nothing" )
+        , (["Maybe"], Var.Value "Just" )
+        ]
+    reachableImports = DCE.reachableImports nameGraphs stringValues
   in
-    Set.fromList $ DCE.reachableImports nameGraphs stringValues
+    Set.fromList reachableImports
 
 cleanObject
   :: Set.Set Var.Canonical

@@ -28,6 +28,8 @@ import qualified Control.Monad.State as State
 import Control.Monad (forM, mapM, forM_)
 import Control.Applicative ((<$>), (<*>) )
 
+import Debug.Trace (trace)
+
 data RefNode =
     ExternalVar Var.Canonical
   | InternalVar Var.Canonical (Int, R.Region)
@@ -157,7 +159,7 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
           case Map.lookup v env of
             Just info ->
               Map.fromList [(ExprNode currentDef, Set.singleton $ InternalVar v info)]
-        _ ->
+        _ -> 
           Map.fromList [( ExprNode currentDef, Set.singleton $ ExternalVar v)]
           
     (Range sub1 sub2) ->
@@ -454,11 +456,21 @@ traverseTopLevels thisModule env (A.A _ e) =
 moduleRefGraph
   :: Module.Name
   -> DCEExpr
-  -> (G.Graph, G.Vertex -> (RefNode, [RefNode]), RefNode -> Maybe G.Vertex)
+  -> (G.Graph, G.Vertex -> (RefNode, [RefNode]), RefNode -> Maybe G.Vertex, Map.Map RefNode (Set.Set RefNode ))
 moduleRefGraph thisModule e =
   let
-    edgeGraph =
+    rawEdgeGraph =
       traverseTopLevels thisModule Map.empty e
+    --We need to add nodes that only occur in edges
+    allNodes =
+      (Set.fromList $ Map.keys rawEdgeGraph)
+        `Set.union`
+        (Set.unions $ Map.elems rawEdgeGraph)
+    edgeGraph =
+      Set.foldr (\n mapSoFar ->
+                  if (Map.member n mapSoFar )
+                  then mapSoFar
+                  else Map.insert n Set.empty mapSoFar ) rawEdgeGraph allNodes
     (nodes, sets) =
       unzip $ Map.toList edgeGraph
     edgeLists =
@@ -467,7 +479,7 @@ moduleRefGraph thisModule e =
       zip3 nodes nodes edgeLists
     (ggraph, getNode , getInt) =
       G.graphFromEdges graphAsList
-  in (ggraph, (\(x,_,z) -> (x,z) ) . getNode, getInt)
+  in (ggraph, (\(x,_,z) -> (x,z) ) . getNode, getInt, edgeGraph)
 
 
 addDefIdent :: Opt.Def -> State.State Int Def
@@ -624,7 +636,7 @@ analyzeModule modul =
     names =
       (Module.names modul)
     
-    (ggraph, getNode, getInt ) = 
+    (ggraph, getNode, getInt, rawGraph ) = 
       moduleRefGraph names $ identExpr
 
     allNodes = 
@@ -652,19 +664,51 @@ analyzeModule modul =
     unusedWarnings =  
       map makeWarning $ List.filter varIsUnused allNodes
 
-    isExternalInt vi =
+    isTopLevelInt vi =
       case (fst $ getNode vi) of
-        ExternalVar _ -> True
+        ExternalVar _ ->
+          True
 
-        _ -> False
+        x -> x `elem` exportedNodes
 
-    importRefsForNode vnode =
+    getNodeVar nd =
+      case nd of
+        ExternalVar v -> v
+        InternalVar v _ -> v
+
+    getNodeAlone = fst . getNode
+    {-
+    myReachable v =
+      let
+        myDfs open closed =
+          if
+            Set.null open
+          then
+            closed
+          else
+            let
+              (u, openSansU) = Set.deleteFindMin open
+              uEdges =
+                case Map.lookup u rawGraph of
+                  Nothing ->
+                    Set.empty
+                  Just x -> x
+              newOpen =
+                openSansU
+                    `Set.union`
+                    (Set.filter (\x -> not $ Set.member x closed ) uEdges )
+            in
+              myDfs newOpen (Set.insert u closed )
+      in
+        Set.toList $ myDfs (Set.singleton v) Set.empty -}
+
+    importRefsForNode vnode = 
       case (getInt vnode) of
-        Nothing -> [] --TODO this case should be impossible
+        --Nothing -> [] --TODO this case should be impossible
 
         Just vi ->
-          List.map ((\(ExternalVar v ) -> v ) . fst . getNode) $
-            List.filter isExternalInt $ G.reachable ggraph vi
+          List.map (getNodeVar . fst . getNode) $
+            List.filter isTopLevelInt $ G.reachable ggraph vi
 
     importExportRefs =
        List.map (\vnode@(InternalVar v _ ) ->
@@ -689,7 +733,7 @@ analyzeModule modul =
     --newProgram =
     --  (error "TODO thread fn") (removeUnusedDefs reachableDefs) $ Module.program $ Module.body modul
 
-  in
+  in  
     do  forM_ unusedWarnings (uncurry Result.warn)
         return $
           ( modul {Module.body = (Module.body modul) {Module.program = newProgram } }
