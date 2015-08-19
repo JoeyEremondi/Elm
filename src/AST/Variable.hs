@@ -14,21 +14,21 @@ import qualified Reporting.PrettyPrint as P
 -- VARIABLES
 
 newtype Raw = Raw String
-    deriving (Eq, Ord, Show, Read)
+    deriving (Eq, Ord, Show)
 
 
 data Home
     = BuiltIn
     | Module [String]
     | Local
-    deriving (Eq, Ord, Show, Read)
+    deriving (Eq, Ord, Show)
 
 
 data Canonical = Canonical
     { home :: !Home
     , name :: !String
     }
-    deriving (Eq, Ord, Show, Read)
+    deriving (Eq, Ord, Show)
 
 
 local :: String -> Canonical
