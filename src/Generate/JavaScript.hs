@@ -437,15 +437,9 @@ crushIfsHelp visitedBranches unvisitedBranches finally =
 topLevelDefToStatements :: Opt.Def -> State Int (String, [Statement ()])
 topLevelDefToStatements def =
   case def of
-    (Opt.Definition facts pattern@(A.A _ (P.Var nm)) expr) ->
-      case Opt.tailRecursionDetails facts of
-        Just name ->
-            do  func <- generateTailFunction name (Expr.collectLambdas expr)
-                return (nm, [ VarDeclStmt () [ varDecl name func ] ])
-
-        Nothing ->
-          do  retJS <- (defToStatementsHelp facts pattern =<< toJsExpr expr)
-              return (nm, retJS )
+    (Opt.Definition _ (A.A _ (P.Var nm)) _) ->
+      do  stmt <- defToStatements def
+          return (nm, stmt)
 
     _ ->
       error "Should only have single names defined at the top level"

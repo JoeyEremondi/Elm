@@ -341,7 +341,7 @@ renderObject obj =
     [ _topHeader obj
     , Text.pack ("\n" ++ makeName ++ " = function(_elm){\n")
     , _fnHeader obj
-    , Text.concat $ map snd $ _fnDefs obj
+    , Text.intercalate (Text.pack "\n") $ map snd $ _fnDefs obj
     , Text.concat
       [ valuesName
       , Text.pack " = "

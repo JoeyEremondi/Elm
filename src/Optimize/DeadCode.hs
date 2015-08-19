@@ -327,8 +327,12 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
       ExplicitList subs ->
         unionMap self subs
 
-      Binop _op arg1 arg2 ->
-        self arg1 `graphUnion` self arg2
+      Binop op arg1 arg2 ->
+        self arg1
+        `graphUnion`
+        self arg2
+        `graphUnion`
+        (self $ A.A ann $ Var op)
 
       Lambda pat arg -> 
         let
