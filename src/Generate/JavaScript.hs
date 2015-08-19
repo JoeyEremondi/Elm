@@ -688,7 +688,7 @@ generate modul =
               |> drop 2
 
     jsExports =
-        map entry $ ("_op", "_op") : concatMap extract (exports modul)
+        map entry $ concatMap extract (exports modul)
       where
         entry (nm, x) =
           (nm,

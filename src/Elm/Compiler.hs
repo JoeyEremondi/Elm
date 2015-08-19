@@ -328,10 +328,12 @@ renderObject obj =
     valuesName =
       Text.pack $
         List.intercalate "." (["_elm"] ++ nameList ++ ["values"] )
+    opAssign =
+      Text.pack "_op : _op"
     valuesList =
       Text.concat
       [ Text.pack "{ "
-      , Text.intercalate (Text.pack ", ") (map snd $ _jsExports obj )
+      , Text.intercalate (Text.pack ",\n") (opAssign : (map snd $ _jsExports obj) )
       , Text.pack "};"
       ]
   in
