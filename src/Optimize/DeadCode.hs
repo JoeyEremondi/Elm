@@ -25,7 +25,20 @@ import Control.Monad (forM, forM_)
 import Control.Applicative ((<$>), (<*>), pure )
 
 
+-------------------------------------
+-- AST with augmented expressions
+-- We add a unique identifier to every expression and pattern
+-------------------------------------
+
+data ExprFacts =
+  ExprFacts
+  { exprRegion :: R.Region
+  , exprIdent :: Int
+  } deriving (Eq, Ord, Show)
+
+
 type DCEExpr = Gen.Expr ExprFacts Def Var.Canonical Type.Canonical
+
 
 type DCEExpr' = Gen.Expr' ExprFacts Def Var.Canonical Type.Canonical
 
@@ -37,6 +50,153 @@ data Def
     = Def DCEPat DCEExpr (Maybe (A.Located Type.Canonical))
     deriving (Show)
 
+
+-------------------------------------
+-- AST traversals
+-- Give each expression a unique integer
+-- for easy comparison in the Ref graph
+-------------------------------------
+
+addDefIdent :: Can.Def -> State.State Int Def
+addDefIdent (Can.Definition pat expr tp) =
+  do  nextInt <- State.get
+      State.put (nextInt + 1)
+      Def <$> addPatIdent pat <*> addExprIdent expr <*> pure tp
+
+
+addPortIdent
+  :: PortImpl Can.Expr t
+  -> State.State Int (PortImpl DCEExpr t)
+addPortIdent portImpl =
+    case portImpl of 
+      In p1 p2 ->
+        return $ In p1 p2
+      
+      Out p1 p2 p3 -> do
+        newExpr <- addExprIdent p2
+        return $ Out p1 newExpr p3
+      
+      Task p1 p2 p3 -> do
+        newExpr <- addExprIdent p2
+        return $ Task p1 newExpr p3
+
+
+addPatIdent
+  :: Pat.CanonicalPattern
+  -> State.State Int DCEPat
+addPatIdent (A.A reg pat) =
+  do  innerPat <-
+        case pat of
+          Pat.Data ctor args ->
+            Pat.Data ctor <$> forM args addPatIdent
+
+          Pat.Record p ->
+            return $ Pat.Record p
+
+          Pat.Alias nm sub ->
+            Pat.Alias nm <$> addPatIdent sub
+
+          Pat.Var p ->
+            return $ Pat.Var p
+
+          Pat.Anything ->
+            return Pat.Anything
+
+          Pat.Literal p ->
+            return $ Pat.Literal p
+
+      nextInt <- State.get
+      State.put (nextInt + 1)
+      return $ A.A (ExprFacts reg nextInt) innerPat
+
+
+addExprIdent :: Can.Expr -> State.State Int DCEExpr
+addExprIdent (A.A reg e) =
+  do let self = addExprIdent
+
+         newExprM =
+           case e of
+             Literal l ->
+               return $ Literal l
+         
+             Var v ->
+               return $ Var v
+         
+             Range start end ->
+               Range <$> self start <*> self end
+         
+             ExplicitList subList ->
+               ExplicitList <$> forM subList self
+         
+             Binop op arg1 arg2 ->
+               (Binop op) <$> self arg1 <*> self arg2
+         
+             Lambda pat body -> 
+               do  newPat <- addPatIdent pat
+                   Lambda newPat <$> self body
+         
+             App fn arg ->
+               App <$> self fn <*> self arg
+         
+             MultiIf pairs final ->
+               do let (conds, exprs) = unzip pairs
+                  newConds <- forM conds self
+                  newExprs <- forM exprs self
+                  newFinal <- self final
+                  return $ MultiIf (zip newConds newExprs) newFinal
+           
+             Let defs body ->
+               do newDefs <- forM defs addDefIdent
+                  newBody <- self body
+                  return $ Let newDefs newBody
+           
+             Case cexp branches ->
+               do  let (pats, branchExps) = unzip branches
+                   newPats <- forM pats addPatIdent
+                   newCexp <- self cexp
+                   newExps <- forM branchExps self
+                   return $ Case newCexp $ zip newPats newExps
+           
+             Data ctor args ->
+               (Data ctor) <$> forM args self
+         
+             Access recExp field ->
+               Access <$> self recExp <*> return field
+         
+             Remove recExp field ->
+               Remove <$> self recExp <*> return field
+         
+             Insert recExp field arg ->
+               Insert <$> self recExp <*> return field <*> self arg
+         
+             Modify recExp fieldPairs ->
+               do let (names, vals) = unzip fieldPairs
+                  newVals <- forM vals self
+                  newRec <- self recExp
+                  return $ Modify newRec $ zip names newVals
+           
+             Record pairs ->
+               do let (names, vals) = unzip pairs
+                  newVals <- forM vals self
+                  return $ Record $ zip names newVals
+           
+             Port sub ->
+               Port <$> addPortIdent sub
+         
+             GLShader a b c ->
+               return $ GLShader a b c
+
+             Crash x ->
+               return $ Crash x
+         
+     newExpr <- newExprM
+     nextInt <- State.get
+     State.put (nextInt + 1)
+     return $ A.A (ExprFacts reg nextInt) newExpr
+
+---------------------------------
+-- Reference graph data types
+---------------------------------
 
 data RefNode =
     ExternalVar Var.Canonical
@@ -54,15 +214,10 @@ type RefEnv = Map.Map Var.Canonical (Int, R.Region)
 
 
 type RefGraph = Map.Map RefNode (Set.Set RefNode)
-
-
-data ExprFacts =
-  ExprFacts
-  { exprRegion :: R.Region
-  , exprIdent :: Int
-  } deriving (Eq, Ord, Show)
   
 
+-- Given a pattern, return all the variables (and facts about them)
+-- defined by that pattern
 patternVars :: DCEPat -> [(Var.Canonical, ExprFacts)]
 patternVars (A.A facts pat) =
   case pat of
@@ -83,6 +238,8 @@ patternVars (A.A facts pat) =
     (Pat.Literal _) -> []
 
 
+-- Insert an edge from the first to the second given nodes
+-- into the given graph
 insertEdge :: RefNode -> RefNode -> RefGraph -> RefGraph
 insertEdge ident newEdge dict =
   case Map.lookup ident dict of
@@ -93,6 +250,7 @@ insertEdge ident newEdge dict =
       Map.insert ident (Set.insert newEdge oldEdges) dict
 
 
+-- Insert multiple edges into a graph
 insertEdges :: RefNode -> (Set.Set RefNode) -> RefGraph -> RefGraph
 insertEdges ident newEdges dict =
   case Map.lookup ident dict of
@@ -103,6 +261,8 @@ insertEdges ident newEdges dict =
       Map.insert ident (Set.union newEdges oldEdges) dict
 
 
+-- Given two graphs, create a new graph with their nodes
+-- and edges combined
 graphUnion :: RefGraph -> RefGraph -> RefGraph
 graphUnion g h =
   foldr
@@ -110,11 +270,14 @@ graphUnion g h =
   g $ Map.toList h
 
 
+-- Apply a graph generating function to a list of inputs
+-- then union the resulting graphs
 unionMap :: (a -> RefGraph) -> [a] -> RefGraph
 unionMap f inList =
   foldr graphUnion Map.empty $ map f inList
 
 
+-- Create a graph containing one node and no edges
 insertNode :: RefNode -> RefGraph
 insertNode n =
   Map.fromList [(n, Set.empty)]
@@ -125,13 +288,9 @@ An expression refers to any variables it contains,
 and a variable refers to the expression which was used to define it,
 i.e. as the RHS of a let-clause,
 
-
 Some special cases: function parameters are always sinks in the graph,
 since they are defined entirely by the parameters during function application.
 
-For case statements, we treat the variables defined by matching as dead-ends,
-and assume that every variable in the expression being matched
-is referenced by the body of each branch of the case statement.
 -}
 makeRefGraph :: Module.Name -> RefEnv -> Int -> DCEExpr  -> RefGraph
 makeRefGraph thisModule env currentDef (A.A ann expr) =
@@ -292,109 +451,15 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
         Map.empty
 
 
-dropPatAnnotation :: DCEPat -> Pat.CanonicalPattern
-dropPatAnnotation (A.A facts pat) =
-  A.A (exprRegion facts ) $
-    case pat of
-      Pat.Data p1 p2 ->
-        Pat.Data p1 (map dropPatAnnotation p2)
-
-      Pat.Record p ->
-        Pat.Record p
-
-      Pat.Alias p1 p2 ->
-        Pat.Alias p1 $ dropPatAnnotation p2
-
-      Pat.Var p ->
-        Pat.Var p
-
-      Pat.Anything ->
-        Pat.Anything
-
-      Pat.Literal p ->
-        Pat.Literal p
-
-
-dropDefAnnotation :: Def -> Can.Def
-dropDefAnnotation (Def pat expr tp ) =
-  Can.Definition (dropPatAnnotation pat) (dropAnnotation expr) tp
-
-dropAnnotation :: DCEExpr -> Can.Expr
-dropAnnotation (A.A facts expr ) =
-  A.A (exprRegion facts ) $
-    case expr of
-      Literal e ->
-        Literal e
-
-      Var e ->
-        Var e
-
-      Range e1 e2 ->
-        Range (dropAnnotation e1) (dropAnnotation e2)
-
-      ExplicitList e ->
-        ExplicitList $ map dropAnnotation e
-
-      Binop e1 e2 e3 ->
-        Binop e1 (dropAnnotation e2) (dropAnnotation e3)
-
-      Lambda e1 e2 ->
-        Lambda (dropPatAnnotation e1) (dropAnnotation e2)
-
-      App e1 e2 ->
-        App (dropAnnotation e1) (dropAnnotation e2)
-
-      MultiIf e1 e2 ->
-        MultiIf (map (\(x,y) ->
-                       (dropAnnotation x, dropAnnotation y)) e1) (dropAnnotation e2)
-
-      Let defs e2 ->
-        Let (map dropDefAnnotation defs ) (dropAnnotation e2 )
-
-      Case e1 e2 ->
-        Case (dropAnnotation e1) $
-          map (\(x,y) ->
-                (dropPatAnnotation x, dropAnnotation y) ) e2
-
-      Data e1 e2 ->
-        Data e1 $ map dropAnnotation e2
-
-      Access e1 e2 ->
-        Access (dropAnnotation e1) e2
-
-      Remove e1 e2 ->
-        Remove (dropAnnotation e1) e2
-
-      Insert e1 e2 e3 ->
-        Insert (dropAnnotation e1) e2 (dropAnnotation e3)
-
-      Modify e1 e2 ->
-        Modify (dropAnnotation e1) (map (\(x,y) -> (x, dropAnnotation y) ) e2)
-
-      Record e ->
-        Record (map (\(x,y) -> (x, dropAnnotation y) ) e)
-
-      Port (In p1 p2) ->
-        Port $ In p1 p2
-      
-      Port (Out p1 p2 p3) ->
-        Port $ Out p1 (dropAnnotation p2) p3
-
-      Port (Task p1 p2 p3) ->
-        Port $ Task p1 (dropAnnotation p2) p3
-
-      GLShader e1 e2 e3 ->
-        GLShader e1 e2 e3
-
-      Crash e ->
-        Crash e
-
 -- Create a list, pairing variables, the unique identifier of the expression on their RHS
 -- and the region of code they lie in
+makeDefPairs :: Def -> [(Var.Canonical, (Int, R.Region))]
 makeDefPairs (Def pat (A.A subAnn _) _ ) =
   [(v, (exprIdent subAnn, exprRegion pFacts)) | (v, pFacts) <- patternVars pat]
 
 
+-- Given a the name and AST for a module, generate nodes
+-- for all of the top-level names defined in that module
 topLevelNames :: Module.Name -> DCEExpr -> [RefNode]
 topLevelNames thisModule (A.A _ e) =
   case e of
@@ -417,7 +482,8 @@ topLevelNames thisModule (A.A _ e) =
       error "Shouldn't have non Let in top-level structure"  
 
 
-
+-- Given the AST for a module, traverse the top-level Let structure
+-- to generate the full reference graph for the module
 traverseTopLevels
  :: Module.Name
  -> RefEnv
@@ -475,10 +541,11 @@ traverseTopLevels thisModule env (A.A _ e) =
       error "Shouldn't have non Let in top-level structure"  
 
 
+-- Generate the Data.Graph structure for a module's reference graph
 moduleRefGraph
   :: Module.Name
   -> DCEExpr
-  -> (G.Graph, G.Vertex -> (RefNode, [RefNode]), RefNode -> Maybe G.Vertex, Map.Map RefNode (Set.Set RefNode ))
+  -> (G.Graph, G.Vertex -> (RefNode, [RefNode]), RefNode -> Maybe G.Vertex)
 moduleRefGraph thisModule e =
   let
     rawEdgeGraph =
@@ -508,162 +575,27 @@ moduleRefGraph thisModule e =
     (ggraph, getNode , getInt) =
       G.graphFromEdges graphAsList
   in
-    (ggraph, (\(x,_,z) -> (x,z) ) . getNode, getInt, edgeGraph)
+    (ggraph, (\(x,_,z) -> (x,z) ) . getNode, getInt)
 
 
-addDefIdent :: Can.Def -> State.State Int Def
-addDefIdent (Can.Definition pat expr tp) =
-  do  nextInt <- State.get
-      State.put (nextInt + 1)
-      Def <$> addPatIdent pat <*> addUniqueIdent expr <*> pure tp
-
-
-addPortIdent
-  :: PortImpl Can.Expr t
-  -> State.State Int (PortImpl DCEExpr t)
-addPortIdent portImpl =
-    case portImpl of 
-      In p1 p2 ->
-        return $ In p1 p2
-      
-      Out p1 p2 p3 -> do
-        newExpr <- addUniqueIdent p2
-        return $ Out p1 newExpr p3
-      
-      Task p1 p2 p3 -> do
-        newExpr <- addUniqueIdent p2
-        return $ Task p1 newExpr p3
-
-
-addPatIdent
-  :: Pat.CanonicalPattern
-  -> State.State Int DCEPat
-addPatIdent (A.A reg pat) =
-  do  innerPat <-
-        case pat of
-          Pat.Data ctor args ->
-            Pat.Data ctor <$> forM args addPatIdent
-
-          Pat.Record p ->
-            return $ Pat.Record p
-
-          Pat.Alias nm sub ->
-            Pat.Alias nm <$> addPatIdent sub
-
-          Pat.Var p ->
-            return $ Pat.Var p
-
-          Pat.Anything ->
-            return Pat.Anything
-
-          Pat.Literal p ->
-            return $ Pat.Literal p
-
-      nextInt <- State.get
-      State.put (nextInt + 1)
-      return $ A.A (ExprFacts reg nextInt) innerPat
-
-addUniqueIdent :: Can.Expr -> State.State Int DCEExpr
-addUniqueIdent (A.A reg e) =
-  do let self = addUniqueIdent
-
-         newExprM =
-           case e of
-             Literal l ->
-               return $ Literal l
-         
-             Var v ->
-               return $ Var v
-         
-             Range start end ->
-               Range <$> self start <*> self end
-         
-             ExplicitList subList ->
-               ExplicitList <$> forM subList self
-         
-             Binop op arg1 arg2 ->
-               (Binop op) <$> self arg1 <*> self arg2
-         
-             Lambda pat body -> 
-               do  newPat <- addPatIdent pat
-                   Lambda newPat <$> self body
-         
-             App fn arg ->
-               App <$> self fn <*> self arg
-         
-             MultiIf pairs final ->
-               do let (conds, exprs) = unzip pairs
-                  newConds <- forM conds self
-                  newExprs <- forM exprs self
-                  newFinal <- self final
-                  return $ MultiIf (zip newConds newExprs) newFinal
-           
-             Let defs body ->
-               do newDefs <- forM defs addDefIdent
-                  newBody <- self body
-                  return $ Let newDefs newBody
-           
-             Case cexp branches ->
-               do  let (pats, branchExps) = unzip branches
-                   newPats <- forM pats addPatIdent
-                   newCexp <- self cexp
-                   newExps <- forM branchExps self
-                   return $ Case newCexp $ zip newPats newExps
-           
-             Data ctor args ->
-               (Data ctor) <$> forM args self
-         
-             Access recExp field ->
-               Access <$> self recExp <*> return field
-         
-             Remove recExp field ->
-               Remove <$> self recExp <*> return field
-         
-             Insert recExp field arg ->
-               Insert <$> self recExp <*> return field <*> self arg
-         
-             Modify recExp fieldPairs ->
-               do let (names, vals) = unzip fieldPairs
-                  newVals <- forM vals self
-                  newRec <- self recExp
-                  return $ Modify newRec $ zip names newVals
-           
-             Record pairs ->
-               do let (names, vals) = unzip pairs
-                  newVals <- forM vals self
-                  return $ Record $ zip names newVals
-           
-             Port sub ->
-               Port <$> addPortIdent sub
-         
-             GLShader a b c ->
-               return $ GLShader a b c
-
-             Crash x ->
-               return $ Crash x
-         
-     newExpr <- newExprM
-     nextInt <- State.get
-     State.put (nextInt + 1)
-     return $ A.A (ExprFacts reg nextInt) newExpr
-
-
+-- The exposed interface for DCE
+-- Given a module, generate the reference-graph for top-level defs,
+-- monadically warning about any unused variables
 analyzeModule
   :: Module.CanonicalModule
   -> Result.Result Warning.Warning Error.Error
-      ( Module.CanonicalModule,
-        [(([String], String),
-        [([String], String)])])
+      [(([String], String),
+        [([String], String)])]
 analyzeModule modul = 
   let
     
     identExpr =
-      State.evalState (addUniqueIdent $ Module.program $ Module.body modul) 1
+      State.evalState (addExprIdent $ Module.program $ Module.body modul) 1
 
     names =
       (Module.names modul)
     
-    (ggraph, getNode, getInt, rawGraph ) = 
+    (ggraph, getNode, getInt) = 
       moduleRefGraph names $ identExpr
 
     allNodes = 
@@ -704,9 +636,6 @@ analyzeModule modul =
 
         InternalVar v _ -> v
 
-    getNodeAlone =
-      fst . getNode
-
     importRefsForNode vnode = 
       case (getInt vnode) of
         Just vi ->
@@ -717,57 +646,24 @@ analyzeModule modul =
       Var.Canonical Var.Local nm ->
         (thisModule, nm)
 
-      Var.Canonical (Var.Module names) nm ->
-        (names, nm)
+      Var.Canonical (Var.Module nms) nm ->
+        (nms, nm)
 
     importExportRefs =
        List.map
          (\vnode@(InternalVar v _ ) ->
            (varToPair names v,
             map (varToPair names) $ importRefsForNode vnode) ) exportedNodes
-       
-    defIsReachable vnode =
-      case (vnode, getInt vnode) of
-        (ExprNode ident, Just varInt) ->
-          if Set.member varInt reachableNodes
-          then Just ident
-          else Nothing
-
-        _ ->
-          Nothing
-
-    reachableDefs =
-      Set.fromList $ Maybe.catMaybes $ map defIsReachable allNodes
-
-    newProgram = --TODO clean up program?
-      Module.program $ Module.body modul
-    --newProgram =
-    --  (error "TODO thread fn") (removeUnusedDefs reachableDefs) $ Module.program $ Module.body modul
 
   in  
     do  forM_ unusedWarnings (uncurry Result.warn)
-        return $
-          ( modul {Module.body = (Module.body modul) {Module.program = newProgram } }
-          , importExportRefs )
+        return importExportRefs
 
 
-removeUnusedDefs
-  :: Set.Set Int
-  -> DCEExpr
-  -> DCEExpr
-removeUnusedDefs usedDefs e@(A.A ann expr) =
-  case expr of
-    Let defs body ->
-      let
-        isUsed (Def _ (A.A subAnn _) _) =
-          Set.member (exprIdent subAnn ) usedDefs
-      in
-        A.A ann $ Let (filter isUsed defs) body
-
-    _ ->
-      e
-
-
+-- Given a list of reference graphs for different modules,
+-- and a list of "target" values to be compiled,
+-- return the list of internal and imported values that
+-- the targets depend on
 reachableImports
   :: [([String], [(([String], String), [([String], String)])])]
   -> [([String], String)]
