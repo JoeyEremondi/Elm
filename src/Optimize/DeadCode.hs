@@ -202,7 +202,6 @@ data RefNode =
     ExternalVar Var.Canonical
   | InternalVar Var.Canonical (Int, R.Region)
   | ExprNode Int
-  | DefNode Int
   | InitialNode
     deriving (Show, Eq, Ord)
 
@@ -361,9 +360,7 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
       Let defs body -> 
         let
           defPairs  =
-            [(v, (exprIdent patAnn, exprRegion patAnn)) |
-               (Def pat _ _ ) <- defs
-               , (v, patAnn) <- patternVars pat]
+            concatMap makeDefPairs defs
 
           defExpr (Def _ rhs _ ) = rhs
 
@@ -378,12 +375,12 @@ makeRefGraph thisModule env currentDef (A.A ann expr) =
                      (map defExpr defs)
 
           patToRHSEdges =
-            unionMap (\(v, (rhsId, reg )) ->
-                       Map.fromList [(InternalVar v (rhsId, reg ), Set.singleton $ DefNode rhsId)] )
+            unionMap (\(v, ident@(rhsId, _ )) ->
+                       Map.fromList [(InternalVar v ident, Set.singleton $ ExprNode rhsId)] )
             defPairs
 
           insertRHSGraph =
-            insertNode $ DefNode $ exprIdent ann
+            insertNode $ ExprNode $ exprIdent ann
 
           insertVarsGraph =
             unionMap (\(v, pr ) -> insertNode $ InternalVar v pr) defPairs
