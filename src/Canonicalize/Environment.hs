@@ -48,6 +48,7 @@ addPattern pattern env =
 
 data Patch
     = Value String Var.Canonical
+    | Shadow String
     | Union String Var.Canonical
     | Alias String (Var.Canonical, [String], Type.Canonical)
     | Pattern String (Var.Canonical, Int)
@@ -66,6 +67,9 @@ addPatch patch env =
     Value name var ->
         env { _values = insert name var (_values env) }
 
+    Shadow name ->
+        env { _values = Map.delete name (_values env) }
+    
     Union name var ->
         env { _adts = insert name var (_adts env) }
 
