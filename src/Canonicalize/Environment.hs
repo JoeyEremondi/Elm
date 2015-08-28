@@ -19,6 +19,7 @@ import Elm.Utils ((|>))
 data Environment = Env
     { _home     :: Module.Name
     , _values   :: Dict Var.Canonical
+    , _waiting  :: Dict Var.Canonical --Values that enter the env once we see a lambda
     , _adts     :: Dict Var.Canonical
     , _aliases  :: Dict (Var.Canonical, [String], Type.Canonical)
     , _patterns :: Dict (Var.Canonical, Int)
@@ -33,7 +34,7 @@ fromPatches :: Module.Name -> [Patch] -> Environment
 fromPatches moduleName patches =
   addPatches
       patches
-      (Env moduleName Map.empty Map.empty Map.empty Map.empty)
+      (Env moduleName Map.empty Map.empty Map.empty Map.empty Map.empty)
 
 
 addPattern :: P.Pattern ann var -> Environment -> Environment
@@ -48,7 +49,7 @@ addPattern pattern env =
 
 data Patch
     = Value String Var.Canonical
-    | Shadow String
+    | Waiting String Var.Canonical
     | Union String Var.Canonical
     | Alias String (Var.Canonical, [String], Type.Canonical)
     | Pattern String (Var.Canonical, Int)
@@ -67,8 +68,14 @@ addPatch patch env =
     Value name var ->
         env { _values = insert name var (_values env) }
 
-    Shadow name ->
-        env { _values = Map.delete name (_values env) }
+    Waiting name var ->
+      let
+        newWaiting =
+          insert name var (_waiting env)
+        newValues = --Make sure we still previous definitions
+          Map.delete name (_values env)
+      in
+        env { _values = newValues, _waiting = newWaiting }
     
     Union name var ->
         env { _adts = insert name var (_adts env) }
@@ -115,7 +122,7 @@ builtinPatches =
 -- TO TYPE DEALIASER
 
 toDealiaser :: Environment -> Map.Map String String
-toDealiaser (Env _ _ adts aliases _) =
+toDealiaser (Env _ _ _ adts aliases _) =
   let
     dealiasAdt (localName, canonicalSet) =
       case Set.toList canonicalSet of
