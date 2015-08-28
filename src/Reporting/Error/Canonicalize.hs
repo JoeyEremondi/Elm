@@ -20,6 +20,7 @@ data Error
     | Export String [String]
     | DuplicateExport String
     | Port PortError
+    | InfRec String
 
 
 -- VARIABLES
@@ -218,6 +219,11 @@ toReport dealiaser err =
             ++ "Json.Values, and concrete records."
         in
           Report.simple "PORT ERROR" preHint postHint
+
+    InfRec var ->
+      namingError
+                ("The value " ++ var ++ " is used in its own definition")
+                ("Recursion is only allowed in functions, in order to avoid infinte loops.")
 
 
 argMismatchReport :: String -> Var.Canonical -> Int -> Int -> Report.Report

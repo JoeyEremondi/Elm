@@ -34,7 +34,14 @@ variable region env var =
               preferLocals region env "variable" vs var
 
           Nothing ->
-              notFound region "variable" (Map.keys (Env._values env)) var
+            --Check if our variable is really not found
+            --Or if we've hidden it to prevent infinite recursion
+            case Map.lookup var (Env._waiting env) of
+              Nothing ->
+                notFound region "variable" (Map.keys (Env._values env)) var
+
+              Just _ ->
+                infiniteRecursion region var
 
 
 tvar
@@ -189,6 +196,12 @@ isOp :: VarName -> Bool
 isOp name =
   Help.isOp (noQualifier name)
 
+
+-- INFINITE RECURSION
+
+infiniteRecursion :: R.Region -> String -> Result.ResultErr a
+infiniteRecursion region var =
+  Result.err (A.A region (Error.InfRec var))
 
 -- NOT FOUND
 
