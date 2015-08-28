@@ -52,11 +52,15 @@ addPatternWaiting pattern env =
   in
       addPatches patches env
 
+clearWaiting :: Environment -> Environment
+clearWaiting = addPatches [MoveFromWaiting]
+
 -- PATCHES
 
 data Patch
     = Value String Var.Canonical
     | Waiting String Var.Canonical
+    | MoveFromWaiting
     | Union String Var.Canonical
     | Alias String (Var.Canonical, [String], Type.Canonical)
     | Pattern String (Var.Canonical, Int)
@@ -75,15 +79,14 @@ addPatch patch env =
     Value name var ->
         env { _values = insert name var (_values env) }
 
-    Waiting name var ->
-      let
-        newWaiting =
-          insert name var (_waiting env)
-        newValues = --Make sure we still previous definitions
-          Map.delete name (_values env)
-      in
-        env { _values = newValues, _waiting = newWaiting }
-    
+    Waiting name var -> --Add a variable to waiting, shadow it in values
+      env { _values = Map.delete name (_values env)
+            , _waiting = insert name var (_waiting env) }
+
+    MoveFromWaiting -> --Transfer all values from Waiting into Values
+      env { _values = Map.union (_waiting env) (_values env)
+            , _waiting = Map.empty }
+      
     Union name var ->
         env { _adts = insert name var (_adts env) }
 

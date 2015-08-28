@@ -409,7 +409,9 @@ expression env (A.A region validExpr) =
             <*> go rightExpr
 
       Lambda arg body ->
-          let env' = Env.addPattern arg env
+          --When we enter a lambda, we get access to recursive defs
+          --We add the pattern second, so that the argument can shadow previous defs
+          let env' = Env.addPattern arg $ Env.clearWaiting env
           in
               Lambda <$> pattern env' arg <*> expression env' body
 
