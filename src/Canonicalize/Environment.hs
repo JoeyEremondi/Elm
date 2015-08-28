@@ -45,6 +45,13 @@ addPattern pattern env =
       addPatches patches env
 
 
+addPatternWaiting :: P.Pattern ann var -> Environment -> Environment
+addPatternWaiting pattern env =
+  let patches =
+        map (\x -> Waiting x (Var.local x)) (P.boundVarList pattern)
+  in
+      addPatches patches env
+
 -- PATCHES
 
 data Patch

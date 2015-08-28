@@ -425,16 +425,21 @@ expression env (A.A region validExpr) =
               (,) <$> go condition <*> go branch
 
       Let defs body ->
-          Let <$> T.traverse rename' defs <*> expression env' body
+          Let <$> T.traverse rename' defs <*> expression bodyEnv body
         where
-          env' =
-              foldr Env.addPattern env $ map (\(Valid.Definition p _ _) -> p) defs
+          bodyEnv =
+              foldr Env.addPatternWaiting env $ map (\(Valid.Definition p _ _) -> p) defs
+
+          --We don't allow access to the defined names in the RHS of the def
+          --until we cross a Lambda
+          defEnv =
+            bodyEnv
 
           rename' (Valid.Definition p body mtipe) =
               Canonical.Definition
-                  <$> pattern env' p
-                  <*> expression env' body
-                  <*> T.traverse (regionType env') mtipe
+                  <$> pattern defEnv p
+                  <*> expression defEnv body
+                  <*> T.traverse (regionType defEnv) mtipe
 
       Var (Var.Raw x) ->
           Var <$> Canonicalize.variable region env x
