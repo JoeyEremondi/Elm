@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wall #-}
 module Canonicalize.Sort (definitions) where
 
-import Control.Monad.State
+import Control.Monad.State as State
 import Control.Applicative ((<$>),(<*>))
 import qualified Data.Graph as Graph
 import qualified Data.Map as Map
@@ -36,6 +36,12 @@ data GraphState =
 
 startState = GraphState Map.empty []
 
+stateUnion :: GraphState -> GraphState -> GraphState
+stateUnion s1 s2 =
+  GraphState
+    { lambdaMap = Map.union (lambdaMap s1) (lambdaMap s2)
+    , errors = errors s1 ++ errors s2
+    }
 
 --Helpful functions for manipulating our state
 
@@ -66,7 +72,7 @@ addError err =
 definitions :: Canonical.Expr -> Result.ResultErr Canonical.Expr
 definitions expression =
   let
-    (result, _) = runState (reorder expression) startState
+    (result, _) = runState (reorder Set.empty expression) startState
   in Result.ok result
 
 
@@ -92,21 +98,21 @@ reorder context (A.A ann expression) =
     case expression of
       -- Be careful adding and restricting freeVars
       Var var ->
-          do  free var _
+          do  free var $ if Set.member var context then Direct else LambdaRef
               return expression
 
       Lambda pattern body ->
-          uncurry Lambda <$> bindingReorder (pattern,body)
+          uncurry Lambda <$> bindingReorder context (pattern,body)
 
       Binop op leftExpr rightExpr ->
-          do  free op _
+          do  free op $ if Set.member op context then Direct else LambdaRef
               Binop op <$> reorder context leftExpr <*> reorder context rightExpr
 
       Case expr cases ->
-          Case <$> reorder context expr <*> mapM bindingReorder cases
+          Case <$> reorder context expr <*> mapM (bindingReorder context) cases
 
       Data name exprs ->
-          do  free (V.local name) _
+          do  free (V.local name) LambdaRef --Data is never recursive
               Data name <$> mapM (reorder context) exprs
 
       -- Just pipe the reorder though
@@ -167,7 +173,7 @@ reorder context (A.A ann expression) =
               -- allows the programmer to write definitions in whatever
               -- order they please, we can still define things in order
               -- and generalize polymorphic functions when appropriate.
-              sccs <- Graph.stronglyConnComp <$> buildDefGraph defs
+              sccs <- Graph.stronglyConnComp <$> buildDefGraph context defs
               let defss = map Graph.flattenSCC sccs
 
               -- remove let-bound variables from the context
@@ -220,10 +226,11 @@ bound pattern =
 
 
 bindingReorder
-    :: (P.CanonicalPattern, Canonical.Expr)
+    :: Set.Set V.Canonical
+    -> (P.CanonicalPattern, Canonical.Expr)
     -> State GraphState (P.CanonicalPattern, Canonical.Expr)
-bindingReorder (pattern, expr) =
-  do  expr' <- reorder _ expr
+bindingReorder context (pattern, expr) =
+  do  expr' <- reorder context expr
       bound pattern
       mapM (\v -> free v Direct) (List.map V.local $ ctors pattern)
       return (pattern, expr')
@@ -233,42 +240,49 @@ bindingReorder (pattern, expr) =
 
 -- This also reorders the all of the sub-expressions in the Def list.
 buildDefGraph
-    :: [Canonical.Def]
+    :: Set.Set V.Canonical
+    -> [Canonical.Def]
     -> State GraphState [(Canonical.Def, Int, [Int])]
-buildDefGraph defs =
-  do  pdefsDeps <- mapM reorderAndGetDependencies defs
+buildDefGraph context defs =
+  do  pdefsDeps <- mapM (reorderAndGetDependencies context) defs
       return $ realDeps (addKey pdefsDeps)
   where
-    addKey :: [(Canonical.Def, [String])] -> [(Canonical.Def, Int, [String])]
+    addKey :: [(Canonical.Def, [V.Canonical])] -> [(Canonical.Def, Int, [V.Canonical])]
     addKey =
         zipWith (\n (pdef,deps) -> (pdef,n,deps)) [0..]
 
-    variableToKey :: (Canonical.Def, Int, [String]) -> [(String, Int)]
+    variableToKey :: (Canonical.Def, Int, [V.Canonical]) -> [(String, Int)]
     variableToKey (Canonical.Definition _ pattern _ _, key, _) =
         [ (var, key) | var <- P.boundVarList pattern ]
 
-    variableToKeyMap :: [(Canonical.Def, Int, [String])] -> Map.Map String Int
+    variableToKeyMap :: [(Canonical.Def, Int, [V.Canonical])] -> Map.Map String Int
     variableToKeyMap pdefsDeps =
         Map.fromList (concatMap variableToKey pdefsDeps)
 
-    realDeps :: [(Canonical.Def, Int, [String])] -> [(Canonical.Def, Int, [Int])]
+    
+
+    realDeps :: [(Canonical.Def, Int, [V.Canonical])] -> [(Canonical.Def, Int, [Int])]
     realDeps pdefsDeps =
-        map convert pdefsDeps
+        map convert stringDeps
       where
+        --TODO is this right?
+        stringDeps = map (\(a,b,vars) -> (a,b, map V.name vars) )
+                     pdefsDeps
         varDict = variableToKeyMap pdefsDeps
         convert (pdef, key, deps) =
             (pdef, key, Maybe.mapMaybe (flip Map.lookup varDict) deps)
 
 
 reorderAndGetDependencies
-    :: Canonical.Def
-    -> State GraphState (Canonical.Def, [String])
-reorderAndGetDependencies (Canonical.Definition facts pattern expr mType) =
+    :: Set.Set V.Canonical
+    -> Canonical.Def
+    -> State GraphState (Canonical.Def, [V.Canonical])
+reorderAndGetDependencies context (Canonical.Definition facts pattern expr mType) =
   do  globalFrees <- get
       -- work in a fresh environment
-      put Set.empty
-      expr' <- reorder _ expr
-      localFrees <- get
+      put startState --TODO this or empty?
+      expr' <- reorder context expr
+      localFrees <- (Set.fromList . Map.keys . lambdaMap) <$> get
       -- merge with global frees
-      modify (Set.union globalFrees)
+      modify (stateUnion globalFrees)
       return (Canonical.Definition facts pattern expr' mType, Set.toList localFrees)
