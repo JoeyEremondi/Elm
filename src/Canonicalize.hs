@@ -81,15 +81,16 @@ moduleHelp
     -> Result.ResultErr (Env.Environment, AlmostCanonicalModule)
 moduleHelp importDict interfaces modul@(Module.Module _ _ comment exports _ decls) =
     canonicalModule
-      <$> canonicalDeclsResult
+      <$> (body (snd <$> canonicalDeclsResult))
+      <*> canonicalDeclsResult
       <*> resolveExports locals exports
   where
-    canonicalModule (env, canonicalDecls) canonicalExports =
+    canonicalModule someBody (env, canonicalDecls) canonicalExports =
         (,) env $
         modul
           { Module.docs = A.map (fmap (Docs.centralize canonicalDecls)) comment
           , Module.exports = canonicalExports
-          , Module.body = body canonicalDecls
+          , Module.body = someBody
           }
 
     locals :: [Var.Value]
@@ -100,15 +101,28 @@ moduleHelp importDict interfaces modul@(Module.Module _ _ comment exports _ decl
         Setup.environment importDict interfaces modul
           `Result.andThen` \env -> (,) env <$> T.traverse (declaration env) decls
 
-    body :: [D.CanonicalDecl] -> Module.Body Canonical.Expr
-    body decls =
-        let nakedDecls = map A.drop decls
-        in
-        Module.Body
-          { program =
-              let expr = Decls.toExpr (Module.name modul) decls
-              in
-                  Sort.definitions (dummyLet expr)
+    body :: Result.ResultErr [D.CanonicalDecl]
+         -> Result.ResultErr (Module.Body Canonical.Expr)
+    body resultDecls =
+        let  resultNakedDecls = map A.drop <$> resultDecls
+             resultExpr = Decls.toExpr (Module.name modul) <$> resultDecls
+             resultSorted =
+               case (dummyLet <$> resultExpr) of
+                 (Result.Result warns1 (Result.Ok x2)) ->
+                        case Sort.definitions x2 of
+                          Result.Result warns2 (Result.Ok sortResult) ->
+                                 Result.Result (warns1 `Set.union` warns2) (Result.Ok sortResult)
+                          Result.Result warns2 (Result.Err err) ->
+                                  Result.Result (warns1 `Set.union` warns2) (Result.Err err)
+
+                 (Result.Result warns (Result.Err x2)) ->
+                   (Result.Result warns (Result.Err x2))
+                         
+                  
+        
+        in  (\sortDefs decls nakedDecls expr ->
+          Module.Body
+          { program = sortDefs
 
           , types =
               Map.empty
@@ -124,7 +138,7 @@ moduleHelp importDict interfaces modul@(Module.Module _ _ comment exports _ decl
 
           , ports =
               [ E.portName impl | D.Port (D.CanonicalPort impl) <- nakedDecls ]
-          }
+          }) <$>  resultSorted <*> resultDecls <*> resultNakedDecls <*> resultExpr
 
 
 -- IMPORTS
