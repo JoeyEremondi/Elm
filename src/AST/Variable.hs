@@ -11,18 +11,23 @@ import qualified AST.Module.Name as ModuleName
 import qualified Reporting.PrettyPrint as P
 
 
--- VARIABLES
+-- RAW NAMES
 
 newtype Raw = Raw String
     deriving (Eq, Ord, Show)
 
 
-data TopLevelVar =
-  TopLevelVar
-  { topVarModule :: ModuleName.Canonical
-  , topVarName :: String
-  } deriving (Eq, Ord, Show)
+-- TOP LEVEL NAMES
 
+data TopLevel = TopLevelVar
+    { topHome :: ModuleName.Canonical
+    , topName :: String
+    }
+    deriving (Eq, Ord, Show)
+
+
+
+-- CANONICAL NAMES
 
 data Home
     = BuiltIn
@@ -65,6 +70,22 @@ inCore home name =
 
 
 -- VARIABLE RECOGNIZERS
+
+isLocalHome :: Home -> Bool
+isLocalHome home =
+  case home of
+    BuiltIn ->
+        False
+
+    Module _ ->
+        False
+
+    TopLevel _ ->
+        True
+
+    Local ->
+        True
+
 
 is :: ModuleName.Raw -> String -> Canonical -> Bool
 is home name var =

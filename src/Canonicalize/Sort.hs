@@ -162,9 +162,6 @@ reorder context (A.A ann expression) =
               Task name expr tipe ->
                   (\e -> Task name e tipe) <$> reorder context expr
 
-      Crash _ ->
-          return expression
-
       -- Actually do some reordering
       Let defs body ->
           do  body' <- reorder context body

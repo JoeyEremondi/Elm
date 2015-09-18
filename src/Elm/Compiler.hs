@@ -12,6 +12,7 @@ import qualified Data.Aeson as Json
 import qualified Data.Map as Map
 
 import qualified AST.Module as Module
+import qualified AST.Module.Name as ModuleName
 import qualified Compile
 import qualified Docs.Check as Docs
 import qualified Elm.Compiler.Version
@@ -19,7 +20,6 @@ import qualified Elm.Compiler.Module as PublicModule
 import qualified Elm.Docs as Docs
 import qualified Elm.Package as Package
 import qualified Generate.JavaScript as JS
-import qualified Optimize
 import qualified Parse.Module as Parse
 import qualified Parse.Parse as Parse
 import qualified Reporting.Annotation as A
@@ -76,8 +76,7 @@ compile context source interfaces =
           docs <- docsGen isExposed modul
 
           let interface = Module.toInterface packageName modul
-          let optModule = Optimize.optimize modul
-          let javascript = JS.generate optModule
+          let javascript = JS.generate modul
 
           return (Result docs interface javascript)
   in
@@ -91,7 +90,7 @@ data Context = Context
     { _packageName :: Package.Name
     , _isRoot :: Bool
     , _isExposed :: Bool
-    , _dependencies :: [PublicModule.Canonical]
+    , _dependencies :: [PublicModule.CanonicalName]
     }
 
 
@@ -104,7 +103,7 @@ data Result = Result
 
 docsGen
     :: Bool
-    -> Module.CanonicalModule
+    -> Module.Optimized
     -> Result.Result w Error.Error (Maybe Docs.Documentation)
 docsGen isExposed modul =
   if not isExposed then
@@ -115,7 +114,7 @@ docsGen isExposed modul =
         Docs.check (Module.exports modul) (Module.docs modul)
 
       name =
-        PublicModule.Name (PublicModule._module (Module.name modul))
+        PublicModule.Name (ModuleName._module (Module.name modul))
 
       toDocs checked =
         Docs.fromCheckedDocs name checked
