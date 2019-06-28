@@ -525,7 +525,7 @@ solveConstraint c = do
     logIO ("Flattened top level:\n;;;; " ++ show c ++ "\n")
     sc <- toSC c
     -- liftIO $ putStrLn "Solving pattern match constraints"
-    ret <- liftIO $ SC.solve (SC.Options "" verboseSMT "z3" False False False) sc
+    ret <- liftIO $ SC.solve (SC.Options "" verboseSMT "cvc4-fmf" False False False) sc
     -- liftIO $ putStrLn "Solved Pattern Match constraints"
     return ret
 
