@@ -69,8 +69,8 @@ import qualified Data.Graph as Graph
 import qualified Data.Tree as Tree 
 
 {-# INLINE verbose #-}
-verbose = False
-verboseSMT = verbose && False
+verbose = True
+verboseSMT = verbose && True
 
 {-# INLINE trace #-}
 -- trace = Trace.trace
@@ -81,7 +81,7 @@ doLog s = when verbose $ putStrLn s
 -- doLog s = return ()
 
 {-# INLINE logIO #-}
-logIO s = when verbose $ liftIO $ putStrLn s
+logIO s = when verbose $ liftIO $ putStrLn (";;;; " ++ s)
 -- doLog s = return ()
 
 type Variable = UF.Point (String, Maybe LitPattern) 
@@ -412,13 +412,13 @@ optimizeConstr tipe (CAnd l) = do
         False -> optimizeConstr tipe (CAnd optimized)
     where
         doOpts l = do 
-            logIO ("Initial list:\n" ++ show l)
+            logIO ("Initial list:\n;;;; " ++ show l)
             lSubbed <- forM l subConstrVars
-            logIO ("After subbed:\n" ++ show lSubbed)
+            logIO ("After subbed:\n;;;; " ++ show lSubbed)
             optimized <- helper lSubbed []
-            logIO ("After opt:\n" ++ show optimized)
+            logIO ("After opt:\n;;;; " ++ show optimized)
             ret <- forM optimized subConstrVars
-            logIO ("After second sub:\n" ++ show ret)
+            logIO ("After second sub:\n;;;; " ++ show ret)
             removeDead ret tipe
         removeDead clist tp = do
             let
@@ -522,7 +522,7 @@ toSCLitNoCycle seen l = do
 solveConstraint :: ConstrainM m => Constraint -> m (Either String ())
 solveConstraint CTrue = return $ Right ()
 solveConstraint c = do
-    logIO ("Flattened top level:\n" ++ show c ++ "\n")
+    logIO ("Flattened top level:\n;;;; " ++ show c ++ "\n")
     sc <- toSC c
     -- liftIO $ putStrLn "Solving pattern match constraints"
     ret <- liftIO $ SC.solve (SC.Options "" verboseSMT "z3" False False False) sc
@@ -723,7 +723,7 @@ constrainExpr tyMap _GammaPath (A.At region expr)  = do
             (Just sigma) -> do
                 (tipe, constr) <- instantiate sigma
                 logIO $ "Instantiating " ++ (show sigma) ++ " into " ++ (show (tipe, constr)) ++ " for var " ++ (N.toString name)
-                logIO $ "Unifying types" ++ (show t) ++ "\n  and " ++ show tipe
+                logIO $ "Unifying types" ++ (show t) ++ "\n;;;;  and " ++ show tipe
                 unifyTypes t tipe
                 return constr
     constrainExpr_ e@(Can.VarTopLevel _ name) t (_Gamma, pathConstr) = --TODO what about other modules?
@@ -983,9 +983,9 @@ canPatToLit  (A.At info pat) =
         (Can.PList plist) -> litList (map canPatToLit plist)
         (Can.PCons p1 p2) -> litCons (canPatToLit p1) (canPatToLit p2)
         (Can.PBool _ b) -> if b then litTrue else litFalse
-        (Can.PChr c) -> litChar c
+        (Can.PChr c) -> litChar c 
         (Can.PStr s) -> litString s
-        (Can.PInt i) -> litInt i
+        (Can.PInt i) -> litInt i 
         Can.PCtor { Can._p_name = ctorName, Can._p_args = ctorArgs } -> Ctor (N.toString ctorName) (map (canPatToLit . Can._arg) ctorArgs)
 
 getProjections :: (ConstrainM m) => String -> Arity -> LitPattern -> m (Constraint, [LitPattern])
