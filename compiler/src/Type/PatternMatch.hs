@@ -400,7 +400,7 @@ removeUnreachableConstraints initial constrs = do
         initialVertices = map (Maybe.fromJust . vertexFromKey) initialStrings
         toNode = ((\(a,_,_)->a) . nodeFromVertex )
         reachabilityMap = Map.fromList [ (toNode v, map toNode $ Graph.reachable graph v) | v <- initialVertices] 
-        reachableVertices = List.nub $ concatMap (reachabilityMap Map.!)  allVars 
+        reachableVertices = List.nub $ concatMap (\v -> Maybe.fromMaybe [] $ Map.lookup v reachabilityMap  )  allVars 
         -- reachableVertices = concatMap (map ( (\(a,_,_)->a) . nodeFromVertex )) $ map toList $   Graph.dfs graph initialVertices 
         
         -- reachableVertices = map ( (\(a,_,_)->a) . nodeFromVertex . nodeOf) $ toList canReachForest
@@ -417,7 +417,7 @@ removeUnreachableConstraints initial constrs = do
             vars2 = constrFreeVars c2
         varStrings1 <- fmap (map fst) $ liftIO $ forM vars1 UF.get
         varStrings2 <- fmap (map fst) $ liftIO $ forM vars2 UF.get
-        let reachableFromVar1 = concatMap (reachabilityMap Map.!) varStrings1
+        let reachableFromVar1 = concatMap (\v -> Maybe.fromMaybe [] $ Map.lookup v reachabilityMap) varStrings1
         case (varStrings2 `List.intersect` reachableFromVar1) of
             [] -> return []
             _ -> return [(c1,c2)]
