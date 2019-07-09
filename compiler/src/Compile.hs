@@ -67,11 +67,12 @@ compile flag pkg importDict interfaces source =
       annotations <-
         runTypeInference localizer canonical
 
-      --Joey Eremondi
-      --Disabled in place of Pattern Match Analysis
-      -- () <-
-      --   exhaustivenessCheck canonical
-      () <- patternMatchAnalysis canonical
+      --Joey Eremondi's modification
+      let usePatMatchAnalysis = read $ unsafePerformIO  $ readFile "/home/joey/gh/elm-compiler/usePatMatch.txt"
+      case usePatMatchAnalysis of
+        True -> patternMatchAnalysis canonical
+        False -> exhaustivenessCheck canonical
+
 
       graph <- Result.mapError (Error.Main localizer) $
         Optimize.optimize annotations canonical

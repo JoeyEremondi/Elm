@@ -1,0 +1,6 @@
+https://github.com/r-k-b/elm-interval/blob/2.1.0/src/Union.elm#L270
+https://github.com/pdamoc/elm-hashids/blob/master/src/Hashids.elm#L108
+https://github.com/folkertdev/elm-deque/blob/master/src/Internal.elm#L87
+https://github.com/elm-community/intdict/blob/3.0.0/src/IntDict.elm#L714
+https://github.com/elm-community/graph/blob/6.0.0/src/Graph.elm#L1001
+https://github.com/elm-community/graph/blob/6.0.0/src/Graph.elm#L1065
