@@ -37,7 +37,8 @@ compile project maybeDocsPath ifaces modules =
       answers <- liftIO $
         do  mvar <- newEmptyMVar
             iMVar <- newMVar ifaces
-            answerMVars <- Map.traverseWithKey (compileModule tell project maybeDocsPath mvar iMVar) modules
+            mutex <- newMVar ()
+            answerMVars <- Map.traverseWithKey (compileModule mutex tell project maybeDocsPath mvar iMVar) modules
             putMVar mvar answerMVars
             traverse readMVar answerMVars
 
@@ -64,7 +65,8 @@ type Dict a = Map.Map Module.Raw a
 
 
 compileModule
-  :: (Progress.Progress -> IO ())
+  :: MVar ()
+  -> (Progress.Progress -> IO ())
   -> Project
   -> Maybe FilePath
   -> MVar (Dict (MVar Answer))
@@ -72,7 +74,7 @@ compileModule
   -> Module.Raw
   -> Plan.Info
   -> IO (MVar Answer)
-compileModule tell project maybeDocsPath answersMVar ifacesMVar name info =
+compileModule mutex tell project maybeDocsPath answersMVar ifacesMVar name info =
   do  mvar <- newEmptyMVar
 
       void $ forkIO $
@@ -87,6 +89,7 @@ compileModule tell project maybeDocsPath answersMVar ifacesMVar name info =
                     let imports = makeImports project info
                     ifaces <- readMVar ifacesMVar
                     let source = Plan._src info
+                    takeMVar mutex
                     time <- Timer.time_ $ case Compiler.compile docs pkg imports ifaces source of
                       (_warnings, Left errors) ->
                         do  tell (Progress.CompileFileEnd name Progress.Bad)
@@ -101,6 +104,7 @@ compileModule tell project maybeDocsPath answersMVar ifacesMVar name info =
                             putMVar ifacesMVar (Map.insert canonicalName elmi lock)
                             putMVar mvar (Good result)
                     putStrLn $ "\nCompiling " ++ Plan._path info ++ " took " ++ Timer.formatSeconds time
+                    putMVar mutex ()
 
       return mvar
 
