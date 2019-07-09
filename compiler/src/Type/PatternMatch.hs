@@ -86,6 +86,9 @@ logIO s = when verbose $ liftIO $ putStrLn s
 
 type Variable = UF.Point (String, Maybe LitPattern) 
 
+instance Ord Variable where
+    v1 <= v2 = (unsafePerformIO $ UF.get v1) <= (unsafePerformIO $ UF.get v2 )
+
 newtype Arity = Arity {getArity :: Int} deriving (Show)
 
 
@@ -141,7 +144,7 @@ data LitPattern_ self =
     | Intersect_ self self
     | Union_ self self
     | Neg_ self
-    deriving (Functor, Traversable, Foldable, Show, Eq)
+    deriving (Functor, Traversable, Foldable, Show, Eq, Ord)
 
 pattern SetVar v = Fix ( SetVar_ v)
 pattern Ctor s l = Fix (Ctor_ s l)
@@ -161,7 +164,7 @@ data Constraint_ self =
     | CEqual_ LitPattern LitPattern
     | CTrue_
     | CNot_ self
-    deriving (Functor, Traversable, Foldable, Show, Eq)
+    deriving (Functor, Traversable, Foldable, Show, Eq, Ord)
 
 pattern CAnd l = Fix (CAnd_ l)
 pattern COr l = Fix (COr_ l)
@@ -173,7 +176,10 @@ pattern CTrue = Fix CTrue_
 pattern CNot x = Fix (CNot_ x)
 
 type LitPattern = Fix LitPattern_
+deriving instance Ord LitPattern
+
 type Constraint = Fix Constraint_
+deriving instance Ord Constraint
 
 instance (Show (f (Fix f))) => (Show (Fix f))
   where
@@ -392,34 +398,66 @@ removeUnreachableConstraints initial constrs = do
             (v, v, List.nub [ v2 | (v',v2) <- allEdges, v == v'])
         (graph, nodeFromVertex, vertexFromKey) = Graph.graphFromEdges $  map edgeListFor allVars
         initialVertices = map (Maybe.fromJust . vertexFromKey) initialStrings
-        canReachForest = Graph.dfs graph initialVertices
-        nodeOf (Graph.Node a _) = a
-        reachableVertices = map ( (\(a,_,_)->a) . nodeFromVertex . nodeOf) $ toList canReachForest
+        toNode = ((\(a,_,_)->a) . nodeFromVertex )
+        reachabilityMap = Map.fromList [ (toNode v, map toNode $ Graph.reachable graph v) | v <- initialVertices] 
+        reachableVertices = List.nub $ concatMap (reachabilityMap Map.!)  allVars 
+        -- reachableVertices = concatMap (map ( (\(a,_,_)->a) . nodeFromVertex )) $ map toList $   Graph.dfs graph initialVertices 
+        
+        -- reachableVertices = map ( (\(a,_,_)->a) . nodeFromVertex . nodeOf) $ toList canReachForest
     --Now, we filter our constraints
     --Keep a constraint if any of its free variables are reachable
     let constraintReachable c = do
         let vars = constrFreeVars c
         varStrings <- fmap (map fst) $ liftIO $ forM vars UF.get
         return $ not $ null $ List.intersect  varStrings reachableVertices
-    filterM constraintReachable constrs
+    reachable <- filterM constraintReachable constrs
+    unreachable <- filterM ( \ x -> fmap not $ constraintReachable x) constrs
+    let cEdgesFor (c1, c2) = do
+        let vars1 = constrFreeVars c1
+            vars2 = constrFreeVars c2
+        varStrings1 <- fmap (map fst) $ liftIO $ forM vars1 UF.get
+        varStrings2 <- fmap (map fst) $ liftIO $ forM vars2 UF.get
+        let reachableFromVar1 = concatMap (reachabilityMap Map.!) varStrings1
+        case (varStrings2 `List.intersect` reachableFromVar1) of
+            [] -> return []
+            _ -> return [(c1,c2)]
+
+    cEdgePairs <- (fmap concat) $  mapM  cEdgesFor [(c1,c2) | c1 <- unreachable, c2 <- unreachable]
+    let cedgeListFor v =  (v, v, List.nub [ v2 | (v',v2) <- cEdgePairs, v == v'])
+    let (cgraph, cnodeFromVertex, cvertexFromKey) = Graph.graphFromEdges $ map cedgeListFor unreachable
+    let ccomps =  map  (map $ (\(a,_,_) -> a) . cnodeFromVertex ) $ map toList $  Graph.components cgraph
+    forM_ ccomps $ \comp -> do
+        logIO $ "Trying to discharge unreachable constraints " ++ show comp
+        unreachSoln <- solveConstraint (CAnd comp)
+        case unreachSoln of
+            Right _ -> return ()
+            Left _ -> error "Could not discharge unreachable constraint"
+    return reachable
+
+            
+    
+
 
 optimizeConstr :: (ConstrainM m) => TypeEffect  -> Constraint -> m (TypeEffect, Constraint)
 optimizeConstr tipe (CAnd []) = return (tipe, CTrue)
 optimizeConstr tipe (CAnd l) = do
-    optimized <- doOpts l
+    (optimized, tret) <- doOpts l
     case (optimized == l) of
-        True -> return $ (tipe, CAnd l)
-        False -> optimizeConstr tipe (CAnd optimized)
+        True -> return $ (tret, CAnd l)
+        False -> optimizeConstr tret (CAnd optimized)
     where
         doOpts l = do 
             logIO ("Initial list:\n" ++ show l)
             lSubbed <- forM l subConstrVars
+            tsubbed <- subTypeVars tipe
             logIO ("After subbed:\n" ++ show lSubbed)
             optimized <- helper lSubbed []
             logIO ("After opt:\n" ++ show optimized)
             ret <- forM optimized subConstrVars
+            tret <- subTypeVars tsubbed
             logIO ("After second sub:\n" ++ show ret)
-            removeDead ret tipe
+            deadRemoved <- removeDead ret tret
+            return (deadRemoved, tret)
         removeDead clist tp = do
             let
                 --First we remove constraints of the form
@@ -438,6 +476,7 @@ optimizeConstr tipe (CAnd l) = do
             --Then, we remove constraints contianing only variables
             --that are unreachable from the reference graph of the type's free variables
             -- i.e. we only want constraints relevant to the typeEffect
+            logIO $ "Filtering out varibles " ++ show easyFiltered 
             removeUnreachableConstraints (typeFreeVars tp) easyFiltered
 
         
@@ -925,11 +964,12 @@ constrainDef tyMap _GammaPath@(_Gamma, pathConstr) def = do
     logIO $  "Solving constraints for definition " ++ N.toString  x
     logIO $ "Got safety constraints " ++ (show $ getSafetyConstrs safety)
     (optimizedDefType , optimizedDefConstr) <- optimizeConstr defType (defConstr )
+    logIO $ "Getting optimized constraints for scheme"
     (optimizedType , optimizedConstr) <- optimizeConstr optimizedDefType (optimizedDefConstr /\ CAnd (getSafetyConstrs safety))  
-    mTestSoln <- solveConstraint optimizedDefConstr
-    case mTestSoln of
-        Right () -> return ()
-        Left _ -> error $ "ERROR: Constraint unsatisfiable without safety\n  " ++ show optimizedDefConstr
+    -- mTestSoln <- solveConstraint optimizedDefConstr
+    -- case mTestSoln of
+    --     Right () -> return ()
+    --     Left _ -> error $ "ERROR: Constraint unsatisfiable without safety\n  " ++ show optimizedDefConstr
     mConstraintSoln <- solveConstraint optimizedConstr
     case mConstraintSoln of
         Right () -> return ()
