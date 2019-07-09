@@ -39,10 +39,12 @@ packages:
 # (e.g., acme-missiles-0.3)
 extra-deps:
  - microtimer-0.0.1.2
- - simple-smt-0.9.4
+ - crackNum-2.3
+ - constraints-0.11
+ - z3-408.0
  - language-glsl-0.3.0
  - github : JoeyEremondi/SetConstraintsSMT
-   commit: "af4eb84" 
+   commit: "c204f98" 
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

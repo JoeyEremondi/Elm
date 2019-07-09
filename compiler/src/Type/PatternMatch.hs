@@ -522,6 +522,7 @@ toSCLitNoCycle seen l = do
 solveConstraint :: ConstrainM m => Constraint -> m (Either String ())
 solveConstraint CTrue = return $ Right ()
 solveConstraint c = do
+    logIO "In solveConstraint, passing off to SBV"
     logIO ("Flattened top level:\n" ++ show c ++ "\n")
     sc <- toSC c
     -- liftIO $ putStrLn "Solving pattern match constraints"
@@ -1026,38 +1027,38 @@ envAfterMatch tyMap matchedPat (A.At region pat)  = do
 
 
 --Helpers for generating literal patterns from builtin data types
-ctorLam = "--Lambda"
+ctorLam = "PatMatchLambda"
 litLambda = Ctor ctorLam []
-ctorUnit = "--Unit"
+ctorUnit = "PatMatchUnit"
 litUnit = Ctor ctorUnit []
 
-ctorPair = "--Pair"
+ctorPair = "PatMatchPair"
 litPair l1 l2 = Ctor ctorPair  [(toLit l1), (toLit l2)]
-ctorTriple = "--Triple"
+ctorTriple = "PatMatchTriple"
 litTriple l1 l2 l3 = Ctor ctorTriple  (map toLit [l1, l2, l3])
 
 litList l = case l of
     [] -> litNull
     (h : t) -> litCons h (litList t)
-ctorNull = "--Null"
-ctorCons = "--Cons"
+ctorNull = "PatMatchNull"
+ctorCons = "PatMatchCons"
 litNull = Ctor ctorNull []
 litCons h t = Ctor ctorCons [toLit h, toLit t]
 
-ctorTrue = "--True"
+ctorTrue = "PatMatchTrue"
 litTrue = Ctor ctorTrue []
-ctorFalse = "--False"
+ctorFalse = "PatMatchFalse"
 litFalse = Ctor ctorFalse []
-ctorChar c = "--CHAR_" ++ unpack c
+ctorChar c = "PatMatchCHAR_" ++ unpack c
 litChar c = Ctor (ctorChar c) []
-ctorString s = "--STRING_" ++ (filter isAlphaNum $ show s)
+ctorString s = "PatMatchSTRING_" ++ (filter isAlphaNum $ show s)
 litString s = Ctor (ctorString s) []
 
--- ctorZero = "--ZERO"
--- ctorPos = "--POSITIVE"
--- ctorNeg = "--NEGATIVE"
--- ctorSucc = "--SUCC"
-litInt i = Ctor ("--_" ++ show i) []
+-- ctorZero = "PatMatchZERO"
+-- ctorPos = "PatMatchPOSITIVE"
+-- ctorNeg = "PatMatchNEGATIVE"
+-- ctorSucc = "PatMatchSUCC"
+litInt i = Ctor ("PatMatch_" ++ show i) []
 -- litInt i = case i of
 --     0 -> Ctor ctorZero []
 --     _ | i < 0 -> Ctor ctorPos [litNat (-i)]
