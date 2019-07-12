@@ -201,6 +201,9 @@ newtype Safety = Safety {unSafety :: [(Constraint, (R.Region, PatError.Context, 
 instance Show Safety where
     show (Safety l) = show $ map fst l
 
+instance Eq Safety where
+    (Safety l1) == (Safety l2) = (map fst l1) == (map fst l2)
+
 getSafetyConstrs :: Safety -> [Constraint]
 getSafetyConstrs (Safety l) = map fst l
 
@@ -398,8 +401,8 @@ subTypeVars (t :@ e) = do
     enew <- (subLitVars e)
     return $ tnew :@ enew 
 
-removeUnreachableConstraints :: (ConstrainM m) => [Variable] -> [(Constraint, a)] -> m [(Constraint, a)]
-removeUnreachableConstraints initial constrs = do
+removeUnreachableConstraints :: (ConstrainM m) => [Variable] -> [(Constraint, a)] -> ([(Constraint,a)] -> m () )-> m [(Constraint, a)]
+removeUnreachableConstraints initial constrs discharge = do
     --TODO okay to assume that all vars live, even if replaced by expr?
     initialStrings <- fmap (map fst) $  liftIO $ mapM UF.get initial
     allVars <- fmap (map fst) $ liftIO $ mapM UF.get $  List.nub $ initial ++ (concatMap (constrFreeVars . fst ) constrs)
@@ -443,45 +446,56 @@ removeUnreachableConstraints initial constrs = do
     let cedgeListFor v =  (v, fst v,   [ v2 | ((v', _),(v2, _)) <- cEdgePairs,  fst v ==  v'])
     let (cgraph, cnodeFromVertex, cvertexFromKey) = Graph.graphFromEdges $ map cedgeListFor unreachable
     let ccomps =  map  (map $ (\(a,_,_) -> a) . cnodeFromVertex ) $ map toList $  Graph.components cgraph
-    forM_ ccomps $ \comp -> do
+    forM_ ccomps discharge
+    -- $ \comp -> do
+    --     -- logIO $ "Trying to discharge unreachable constraints " ++ show $ comp
+    --     unreachSoln <- solveConstraint (CAnd $ map fst comp)
+    --     case unreachSoln of
+    --         Right _ -> return ()
+    --         Left _ -> error "Could not discharge unreachable constraint"
+    return reachable
+
+
+dischargeSafety comp = do
         -- logIO $ "Trying to discharge unreachable constraints " ++ show $ comp
         unreachSoln <- solveConstraint (CAnd $ map fst comp)
         case unreachSoln of
             Right _ -> return ()
-            Left _ -> error "Could not discharge unreachable constraint"
-    return reachable
-
-            
+            Left _ -> 
+                forM_ comp $ \ (_, (region, context, pats) ) ->
+                    throwError $ PatError.Incomplete region context (map PatError.simplify pats )            
     
 
 
-optimizeConstr :: (ConstrainM m) => TypeEffect  -> Constraint -> Safety -> m (TypeEffect, Constraint, Safety)
+optimizeConstr :: forall m . (ConstrainM m) => TypeEffect  -> Constraint -> Safety -> m (TypeEffect, Constraint, Safety)
 optimizeConstr tipe (CAnd []) safety = return (tipe, CTrue, safety)
-optimizeConstr tipe (CAnd l) safety = do
-    (optimizedPairs, tret) <-  doOpts (map (,()) l) 
+optimizeConstr topTipe (CAnd l) safety = do
+    (optimizedPairs, tInter) <-  doOpts topTipe (map (,()) l) (\_ -> return ())
+    (optimizedSafetyList, tret) <- doOpts tInter (unSafety safety) dischargeSafety
+    let optimizedSafety = Safety optimizedSafetyList
     let optimized = map fst optimizedPairs
-    case (optimized == l) of
-        True -> return $ (tret, CAnd l, safety)
-        False -> optimizeConstr tret (CAnd optimized) safety
+    case (optimized == l && optimizedSafety ==  safety) of
+        True -> return $ (tret, CAnd l, optimizedSafety)
+        False -> optimizeConstr tret (CAnd optimized) optimizedSafety
     where
         subConstrPairs (c, info) = do
             csub <- subConstrVars c
             return (csub, info)
-        -- doOpts :: [(Constraint, a)] -> m ([(Constraint, a)], TypeEffect) 
-        doOpts l = do 
-            logIO ("Initial list:\n" ++ show l)
+        doOpts :: forall a . TypeEffect -> [(Constraint, a)] -> _ -> m ([(Constraint, a)], TypeEffect) 
+        doOpts tipe l discharge = do 
+            logIO ("Initial list:\n" ++ show (map fst l))
             lSubbed <- forM l subConstrPairs
             tsubbed <- subTypeVars tipe
-            logIO ("After subbed:\n" ++ show lSubbed)
+            logIO ("After subbed:\n" ++ show (map fst lSubbed))
             optimized <- helper lSubbed []
-            logIO ("After opt:\n" ++ show optimized)
+            logIO ("After opt:\n" ++ show (map fst optimized))
             ret <- forM optimized subConstrPairs
             tret <- subTypeVars tsubbed
-            logIO ("After second sub:\n" ++ show ret)
-            deadRemoved <- removeDead ret tret
+            logIO ("After second sub:\n" ++ show (map fst ret))
+            deadRemoved <- removeDead ret tret discharge
             return (deadRemoved, tret)
-        -- removeDead :: [(Constraint, a)] -> TypeEffect -> m [(Constraint, a)]
-        removeDead clist tp = do
+        removeDead :: [(Constraint, a)] -> TypeEffect -> _ -> m [(Constraint, a)]
+        removeDead clist tp discharge = do
             let
                 --First we remove constraints of the form
                 -- X << pat 
@@ -499,13 +513,13 @@ optimizeConstr tipe (CAnd l) safety = do
             --Then, we remove constraints contianing only variables
             --that are unreachable from the reference graph of the type's free variables
             -- i.e. we only want constraints relevant to the typeEffect
-            logIO $ "Filtering out varibles " ++ show easyFiltered 
-            removeUnreachableConstraints (typeFreeVars tp) easyFiltered
+            logIO $ "Filtering out varibles " ++ show (map fst easyFiltered) 
+            removeUnreachableConstraints (typeFreeVars tp) easyFiltered discharge
 
         
         -- subVars :: Constraint -> m Constraint
 
-        -- helper :: [(Constraint, a)] -> [(Constraint,a)] -> m [(Constraint, a)] 
+        helper :: [(Constraint, a)] -> [(Constraint,a)] -> m [(Constraint, a)] 
         helper [] accum = return $ reverse accum
         helper ((CTrue,_) : rest) accum = helper rest accum
         helper ((CEqual (SetVar l1) (SetVar l2), info) : rest) accum = do
