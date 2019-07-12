@@ -68,6 +68,8 @@ import qualified Debug.Trace as Trace
 import qualified Data.Graph as Graph 
 import qualified Data.Tree as Tree 
 
+import Data.Bifunctor (first)
+
 -- {-# INLINE verbose #-}
 (verbose :: Bool, verboseSMT :: Bool) = read $ unsafePerformIO  $ readFile "/home/joey/gh/elm-compiler/verbose.txt"
 -- verboseSMT = True --verbose && True
@@ -192,11 +194,14 @@ instance (Eq (f (Fix f))) => (Eq (Fix f)) where
 
 
 
-newtype Safety = Safety {unSafety :: [(Constraint, R.Region, PatError.Context, [Can.Pattern] )]}
+newtype Safety = Safety {unSafety :: [(Constraint, (R.Region, PatError.Context, [Can.Pattern]) )]}
     deriving (Monoid, Semigroup)
 
+instance Show Safety where
+    show (Safety l) = show $ map fst l
+
 getSafetyConstrs :: Safety -> [Constraint]
-getSafetyConstrs (Safety l) = map (\(c, _, _, _) -> c) l
+getSafetyConstrs (Safety l) = map fst l
 
 (====) :: (Subsetable a, Subsetable b) => a -> b -> Constraint
 p1 ==== p2 =
@@ -256,17 +261,17 @@ instance Monoid Constraint where
     mappend = (Data.Semigroup.<>)
 
 data EffectScheme =
-    Forall [Variable] TypeEffect Constraint
+    Forall [Variable] TypeEffect Constraint Safety
     deriving (Show)
 
 type Gamma = Map.Map N.Name EffectScheme
 
 monoscheme :: TypeEffect -> LitPattern -> EffectScheme
 monoscheme tipe@(_ :@ var) lit =
-    Forall [] tipe (var ==== lit)
+    Forall [] tipe (var ==== lit) (Safety []) 
 
 monoschemeVar :: TypeEffect -> EffectScheme
-monoschemeVar tipe = Forall [] tipe CTrue
+monoschemeVar tipe = Forall [] tipe CTrue (Safety [])
 
 
 
@@ -283,6 +288,8 @@ constrSubsts :: (Variable -> Variable) -> Constraint -> Constraint
 constrSubsts sub c@(CSubset p1 p2) =  CSubset (litSubsts sub p1) (litSubsts sub p2)
 constrSubsts sub c@(CEqual p1 p2) =  CEqual (litSubsts sub p1) (litSubsts sub p2)
 constrSubsts sub (Fix c) =   Fix (constrSubsts sub <$> c)
+
+safetySubsts sub (Safety l) = Safety $ (fmap . first)  (constrSubsts sub ) l
 
 litSubsts :: (Variable -> Variable) -> LitPattern -> LitPattern
 litSubsts sub l@(SetVar v) =  SetVar $ sub v
@@ -311,6 +318,7 @@ litLocalVars l = []
 typeFreeVars (t :@ e) =  (litFreeVars e) ++ concatMap typeLocalVars (toList t)
 constrFreeVars (Fix c) =  concatMap constrLocalVars ((Fix c) : toList c)
 litFreeVars (Fix l) =  concatMap litLocalVars ((Fix l) : toList l)
+safetyFreeVars (Safety l) = concatMap  (constrFreeVars . fst ) l
 -- schemeFreeVars (Forall v t c  ) =  (typeFreeVars t) ++ (constrFreeVars c) 
 
 freshName :: (ConstrainM m) => String -> m String
@@ -330,11 +338,14 @@ freshVar = do
     liftIO $ UF.fresh (desc, Nothing) 
 
 instantiate :: (ConstrainM m) => EffectScheme -> m (TypeEffect, Constraint)
-instantiate (Forall boundVars tipe constr ) = do
+instantiate (Forall boundVars tipe constr safety) = do
     freshVars <- forM [1 .. length boundVars] $ \ _ -> freshVar
     let subList =  zip boundVars freshVars
     case subList of
-        [] -> return (tipe, constr)
+        [] -> do
+            --Should be empty for monoscheme
+            tell safety
+            return (tipe, constr)
         _ -> do
             logIO $ "Instantiating with SubList" ++ (show subList)
             let substFun x = unsafePerformIO $ do
@@ -347,21 +358,26 @@ instantiate (Forall boundVars tipe constr ) = do
                         doLog $ "Replacing " ++ (show x) ++ " with " ++ (show z)
                         return z
                     _ -> error "Too many matching vars in instantiate"
-            return $ (typeSubsts substFun tipe, constrSubsts substFun constr)
+            let subbedSafety = safetySubsts substFun safety
+            --Add whatever safety constraints came from the instantiation
+            -- to our current safety constraints
+            tell subbedSafety
+            return $ (typeSubsts substFun tipe, constrSubsts substFun constr )
 
 
-generalize :: (ConstrainM m) => Gamma -> TypeEffect -> Constraint  -> m EffectScheme
-generalize _Gamma tipe constr = do
-    let allFreeVars_dupes = (typeFreeVars tipe) ++ constrFreeVars constr
+generalize :: (ConstrainM m) => Gamma -> TypeEffect -> Constraint -> Safety -> m EffectScheme
+generalize _Gamma tipe constr safety = do
+    let allFreeVars_dupes = (typeFreeVars tipe) ++ constrFreeVars constr ++ safetyFreeVars safety
     allFreeVars <- liftIO $ List.nub <$> mapM UF.repr allFreeVars_dupes
-    let schemeVars (Forall bnd (t :@ lit) sconstr) = liftIO $ do
+    let schemeVars (Forall bnd (t :@ lit) sconstr ssafety) = liftIO $ do
             let vEff = litFreeVars lit
-            let vrest = constrFreeVars sconstr
-            reprs <- mapM UF.repr (vEff ++ vrest)
+            let vConstr = constrFreeVars sconstr
+            let vSafety = safetyFreeVars ssafety
+            reprs <- mapM UF.repr (vEff ++ vConstr ++ vSafety)
             boundReprs <- mapM UF.repr bnd
             return $ reprs List.\\ boundReprs
     gammaFreeVars <- (List.nub . concat) <$> mapM schemeVars (Map.elems _Gamma)
-    return $  Forall (allFreeVars List.\\ gammaFreeVars) tipe constr
+    return $  Forall (allFreeVars List.\\ gammaFreeVars) tipe constr safety
 
 subConstrVars (Fix c) = 
     case c of
@@ -438,13 +454,13 @@ removeUnreachableConstraints initial constrs = do
     
 
 
-optimizeConstr :: (ConstrainM m) => TypeEffect  -> Constraint -> m (TypeEffect, Constraint)
-optimizeConstr tipe (CAnd []) = return (tipe, CTrue)
-optimizeConstr tipe (CAnd l) = do
+optimizeConstr :: (ConstrainM m) => TypeEffect  -> Constraint -> Safety -> m (TypeEffect, Constraint, Safety)
+optimizeConstr tipe (CAnd []) safety = return (tipe, CTrue, safety)
+optimizeConstr tipe (CAnd l) safety = do
     (optimized, tret) <- doOpts l
     case (optimized == l) of
-        True -> return $ (tret, CAnd l)
-        False -> optimizeConstr tret (CAnd optimized)
+        True -> return $ (tret, CAnd l, safety)
+        False -> optimizeConstr tret (CAnd optimized) safety
     where
         doOpts l = do 
             logIO ("Initial list:\n" ++ show l)
@@ -517,7 +533,7 @@ optimizeConstr tipe (CAnd l) = do
         helper (CSubset pat@(SetVar _) Bottom : rest) accum = helper ((CEqual Bottom pat):rest) accum
         helper ((CAnd l) : rest) accum = helper (l ++ rest) accum
         helper (h : rest) accum = helper rest (h : accum)
-optimizeConstr tipe c = return (tipe, c)
+optimizeConstr tipe c s = return (tipe, c, s)
 
 
 toSC :: (ConstrainM m) => Constraint -> m SC.CExpr
@@ -735,7 +751,7 @@ runCMIO ioref c = do
         result <- maybeResult
         return (result, safety)
 
-tellSafety pathConstr x r context pats = tell $ Safety [(pathConstr ==> x, r, context, pats)]
+tellSafety pathConstr x r context pats = tell $ Safety [(pathConstr ==> x, (r, context, pats))]
 
 --Given a type and an  effect-variable for each expression,
 -- a mapping (Gamma) from free variables to effect schemes,
@@ -934,7 +950,7 @@ constrainExpr tyMap _GammaPath (A.At region expr)  = do
 constrainDef :: (ConstrainM m) => Map.Map R.Region TypeEffect -> (Gamma, Constraint) -> Can.Def ->   m Gamma
 constrainDef tyMap _GammaPath@(_Gamma, pathConstr) def = do
     theRef <- State.get
-    (x, defType, defConstr, safety) <- case def of
+    (x, defType, defConstr, theSafety) <- case def of
         --Get the type of the body, and add it into the environment as a monoscheme
         --To start our argument-processing loop
         (Can.Def (A.At wholeRegion x) funArgs body) -> do
@@ -960,23 +976,23 @@ constrainDef tyMap _GammaPath@(_Gamma, pathConstr) def = do
             (exprConstr, safety)  <- unpackEither $ liftIO $ runCMIO theRef $ constrainDef_  (map fst patTypes) body wholeType (Map.insert x (monoschemeVar wholeType) _Gamma)
             return (x, wholeType, exprConstr, safety)
     --We check that each safety constraint in this definition is compatible with the other constraints
-    let safetyList = unSafety safety
+    let safetyList = unSafety theSafety
     logIO $  "Solving constraints for definition " ++ N.toString  x
-    logIO $ "Got safety constraints " ++ (show $ getSafetyConstrs safety)
-    (optimizedDefType , optimizedDefConstr) <- optimizeConstr defType (defConstr )
+    logIO $ "Got safety constraints " ++ (show $ getSafetyConstrs theSafety)
+    -- (optimizedDefType , optimizedDefConstr, optimizedDefSafety) <- optimizeConstr defType (defConstr )
     logIO $ "Getting optimized constraints for scheme"
-    (optimizedType , optimizedConstr) <- optimizeConstr optimizedDefType (optimizedDefConstr /\ CAnd (getSafetyConstrs safety))  
+    (optimizedType , optimizedConstr, optimizedSafety) <- optimizeConstr defType defConstr theSafety  
     -- mTestSoln <- solveConstraint optimizedDefConstr
     -- case mTestSoln of
     --     Right () -> return ()
     --     Left _ -> error $ "ERROR: Constraint unsatisfiable without safety\n  " ++ show optimizedDefConstr
-    mConstraintSoln <- solveConstraint optimizedConstr
+    mConstraintSoln <- solveConstraint (optimizedConstr /\ CAnd (getSafetyConstrs optimizedSafety))
     case mConstraintSoln of
         Right () -> return ()
         Left _ -> do
             -- error "Pattern match failure"
-            failures <- forM safetyList $ \(safetyConstr, region, context, pats) -> do
-                soln <- solveConstraint (optimizedDefConstr /\ safetyConstr)
+            failures <- forM safetyList $ \(safetyConstr, (region, context, pats)) -> do
+                soln <- solveConstraint (optimizedConstr /\ safetyConstr)
                 case soln of
                     Right _ -> return $ Nothing
                     Left _ -> do
@@ -991,7 +1007,7 @@ constrainDef tyMap _GammaPath@(_Gamma, pathConstr) def = do
 
     --Now that we have types and constraints for the body, we generalize them over all free variables
     --not  occurring in Gamma, and return an environment mapping the def name to this scheme
-    scheme <- generalize (fst _GammaPath) optimizedType optimizedConstr
+    scheme <- generalize (fst _GammaPath) optimizedType optimizedConstr optimizedSafety
     logIO $ "Generalized type for " ++ N.toString x ++ " is " ++ (show scheme)
     return $ Map.singleton x scheme
     where

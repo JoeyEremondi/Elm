@@ -44,7 +44,7 @@ extra-deps:
  - z3-408.0
  - language-glsl-0.3.0
  - github : JoeyEremondi/SetConstraintsSMT
-   commit: "c204f98" 
+   commit: "223cdcb" 
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
