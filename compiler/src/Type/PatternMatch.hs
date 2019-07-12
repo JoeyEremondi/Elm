@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -397,11 +398,11 @@ subTypeVars (t :@ e) = do
     enew <- (subLitVars e)
     return $ tnew :@ enew 
 
-removeUnreachableConstraints :: (ConstrainM m) => [Variable] -> [Constraint] -> m [Constraint]
+removeUnreachableConstraints :: (ConstrainM m) => [Variable] -> [(Constraint, a)] -> m [(Constraint, a)]
 removeUnreachableConstraints initial constrs = do
     --TODO okay to assume that all vars live, even if replaced by expr?
     initialStrings <- fmap (map fst) $  liftIO $ mapM UF.get initial
-    allVars <- fmap (map fst) $ liftIO $ mapM UF.get $  List.nub $ initial ++ (concatMap constrFreeVars constrs)
+    allVars <- fmap (map fst) $ liftIO $ mapM UF.get $  List.nub $ initial ++ (concatMap (constrFreeVars . fst ) constrs)
     let edgesFor c = do
         let nodesForC = constrFreeVars c
         let pairs = [(c1, c2) | c1 <- nodesForC, c2 <- nodesForC]
@@ -409,7 +410,7 @@ removeUnreachableConstraints initial constrs = do
             r1 <- liftIO $ UF.get c1
             r2 <- liftIO $ UF.get c1
             return (fst r1, fst r2)
-    allEdges <- (List.nub . concat) <$> mapM edgesFor constrs
+    allEdges <- (List.nub . concat) <$> mapM (edgesFor . fst)  constrs
     let edgeListFor v = 
             (v, v, List.nub [ v2 | (v',v2) <- allEdges, v == v'])
         (graph, nodeFromVertex, vertexFromKey) = Graph.graphFromEdges $  map edgeListFor allVars
@@ -426,9 +427,9 @@ removeUnreachableConstraints initial constrs = do
         let vars = constrFreeVars c
         varStrings <- fmap (map fst) $ liftIO $ forM vars UF.get
         return $ not $ null $ List.intersect  varStrings reachableVertices
-    reachable <- filterM constraintReachable constrs
-    unreachable <- filterM ( \ x -> fmap not $ constraintReachable x) constrs
-    let cEdgesFor (c1, c2) = do
+    reachable <- filterM (constraintReachable . fst ) constrs
+    unreachable <- filterM ( \ x -> fmap not $ constraintReachable $ fst x) constrs
+    let cEdgesFor (pair1@(c1,_), pair2@(c2, _)) = do
         let vars1 = constrFreeVars c1
             vars2 = constrFreeVars c2
         varStrings1 <- fmap (map fst) $ liftIO $ forM vars1 UF.get
@@ -436,15 +437,15 @@ removeUnreachableConstraints initial constrs = do
         let reachableFromVar1 = concatMap (\v -> Maybe.fromMaybe [] $ Map.lookup v reachabilityMap) varStrings1
         case (varStrings2 `List.intersect` reachableFromVar1) of
             [] -> return []
-            _ -> return [(c1,c2)]
+            _ -> return [(pair1,pair2)]
 
     cEdgePairs <- (fmap concat) $  mapM  cEdgesFor [(c1,c2) | c1 <- unreachable, c2 <- unreachable]
-    let cedgeListFor v =  (v, v, List.nub [ v2 | (v',v2) <- cEdgePairs, v == v'])
+    let cedgeListFor v =  (v, fst v,   [ v2 | ((v', _),(v2, _)) <- cEdgePairs,  fst v ==  v'])
     let (cgraph, cnodeFromVertex, cvertexFromKey) = Graph.graphFromEdges $ map cedgeListFor unreachable
     let ccomps =  map  (map $ (\(a,_,_) -> a) . cnodeFromVertex ) $ map toList $  Graph.components cgraph
     forM_ ccomps $ \comp -> do
-        logIO $ "Trying to discharge unreachable constraints " ++ show comp
-        unreachSoln <- solveConstraint (CAnd comp)
+        -- logIO $ "Trying to discharge unreachable constraints " ++ show $ comp
+        unreachSoln <- solveConstraint (CAnd $ map fst comp)
         case unreachSoln of
             Right _ -> return ()
             Left _ -> error "Could not discharge unreachable constraint"
@@ -457,23 +458,29 @@ removeUnreachableConstraints initial constrs = do
 optimizeConstr :: (ConstrainM m) => TypeEffect  -> Constraint -> Safety -> m (TypeEffect, Constraint, Safety)
 optimizeConstr tipe (CAnd []) safety = return (tipe, CTrue, safety)
 optimizeConstr tipe (CAnd l) safety = do
-    (optimized, tret) <- doOpts l
+    (optimizedPairs, tret) <-  doOpts (map (,()) l) 
+    let optimized = map fst optimizedPairs
     case (optimized == l) of
         True -> return $ (tret, CAnd l, safety)
         False -> optimizeConstr tret (CAnd optimized) safety
     where
+        subConstrPairs (c, info) = do
+            csub <- subConstrVars c
+            return (csub, info)
+        -- doOpts :: [(Constraint, a)] -> m ([(Constraint, a)], TypeEffect) 
         doOpts l = do 
             logIO ("Initial list:\n" ++ show l)
-            lSubbed <- forM l subConstrVars
+            lSubbed <- forM l subConstrPairs
             tsubbed <- subTypeVars tipe
             logIO ("After subbed:\n" ++ show lSubbed)
             optimized <- helper lSubbed []
             logIO ("After opt:\n" ++ show optimized)
-            ret <- forM optimized subConstrVars
+            ret <- forM optimized subConstrPairs
             tret <- subTypeVars tsubbed
             logIO ("After second sub:\n" ++ show ret)
             deadRemoved <- removeDead ret tret
             return (deadRemoved, tret)
+        -- removeDead :: [(Constraint, a)] -> TypeEffect -> m [(Constraint, a)]
         removeDead clist tp = do
             let
                 --First we remove constraints of the form
@@ -481,14 +488,14 @@ optimizeConstr tipe (CAnd l) safety = do
                 -- or the form (pat << X)
                 --where X occurs in no other constraints
                 --Since these are always trivially solveable
-                occurrences = map constrFreeVars clist
+                occurrences = map (constrFreeVars . fst ) clist
                 varIsDead v = (not $ v `elem` (typeFreeVars tp)) && (length (filter (v `elem`) occurrences) < 2)
                 constrIsDead (CSubset (SetVar v) l) = varIsDead v
                 constrIsDead (CSubset l (SetVar v)) = varIsDead v
                 constrIsDead (CEqual (SetVar v) l) = varIsDead v
                 constrIsDead (CEqual l (SetVar v)) = varIsDead v
                 constrIsDead c = False
-            let easyFiltered = filter (not . constrIsDead) clist
+            let easyFiltered = filter (not . constrIsDead . fst ) clist
             --Then, we remove constraints contianing only variables
             --that are unreachable from the reference graph of the type's free variables
             -- i.e. we only want constraints relevant to the typeEffect
@@ -498,40 +505,40 @@ optimizeConstr tipe (CAnd l) safety = do
         
         -- subVars :: Constraint -> m Constraint
 
-        -- helper :: [Constraint] -> [Constraint] -> m [Constraint] 
+        -- helper :: [(Constraint, a)] -> [(Constraint,a)] -> m [(Constraint, a)] 
         helper [] accum = return $ reverse accum
-        helper (CTrue : rest) accum = helper rest accum
-        helper ((CEqual (SetVar l1) (SetVar l2)) : rest) accum = do
+        helper ((CTrue,_) : rest) accum = helper rest accum
+        helper ((CEqual (SetVar l1) (SetVar l2), info) : rest) accum = do
             eq <- liftIO $ UF.equivalent l1 l2
             case eq of
                 True -> helper rest accum
                 False -> do
                     constr <- unifyEffectVars l1 l2
-                    helper (constr: rest) accum
-        helper ((CEqual l1 (SetVar v)): rest) accum = do
+                    helper ((constr,info): rest) accum
+        helper ((CEqual l1 (SetVar v), info) : rest) accum = do
             (name, mval) <- liftIO $ UF.get v
             case mval of
                 Nothing -> do
                     liftIO $ UF.set v (name, Just l1)
                     helper rest accum
-                Just l2 -> helper ((CEqual l1 l2 ) : rest) accum 
-        helper ((CEqual (SetVar v) l1 ): rest) accum = do
+                Just l2 -> helper ((CEqual l1 l2,info ) : rest) accum 
+        helper ((CEqual (SetVar v) l1, info ): rest) accum = do
             (name, mval) <- liftIO $ UF.get v
             case mval of
                 Nothing -> do
                     liftIO $ UF.set v (name, Just l1)
                     helper rest accum
-                Just l2 -> helper ((CEqual l1 l2 ) : rest) accum
+                Just l2 -> helper ((CEqual l1 l2, info ) : rest) accum
             
-        helper ((CSubset (SetVar l1) (SetVar l2)) : (CSubset (SetVar l2') (SetVar l1')) : rest) accum | l1 == l1' && l2 == l2' = do
+        helper ((CSubset (SetVar l1) (SetVar l2), info) : (CSubset (SetVar l2') (SetVar l1'), info2) : rest) accum | l1 == l1' && l2 == l2' = do
             desc <- liftIO $ UF.get l1
             liftIO $ UF.union l1 l2 desc
             helper rest accum
-        helper ((CSubset _ Top) : l ) accum = helper l accum
-        helper (CSubset Top pat@(SetVar _) : rest) accum = helper ((CEqual Top pat):rest) accum
-        helper ((CSubset Bottom _) : l) accum = helper l accum
-        helper (CSubset pat@(SetVar _) Bottom : rest) accum = helper ((CEqual Bottom pat):rest) accum
-        helper ((CAnd l) : rest) accum = helper (l ++ rest) accum
+        helper ((CSubset _ Top, _) : l ) accum = helper l accum
+        helper ((CSubset Top pat@(SetVar _), info) : rest) accum = helper ((CEqual Top pat, info):rest) accum
+        helper ((CSubset Bottom _, _) : l) accum = helper l accum
+        helper ((CSubset pat@(SetVar _) Bottom, info) : rest) accum = helper ((CEqual Bottom pat, info):rest) accum
+        helper ((CAnd l,info) : rest) accum = helper ( (map (,info) l) ++ rest) accum
         helper (h : rest) accum = helper rest (h : accum)
 optimizeConstr tipe c s = return (tipe, c, s)
 
