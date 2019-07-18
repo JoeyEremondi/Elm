@@ -7,7 +7,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
-
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -147,7 +147,8 @@ data LitPattern_ self =
     | Intersect_ self self
     | Union_ self self
     | Neg_ self
-    deriving (Functor, Traversable, Foldable, Show, Eq, Ord)
+    deriving (Functor, Traversable, Foldable,  Eq, Ord)
+
 
 pattern SetVar v = Fix ( SetVar_ v)
 pattern Ctor s l = Fix (Ctor_ s l)
@@ -157,6 +158,15 @@ pattern Bottom = Fix Bottom_
 pattern Union x y = Fix (Union_ x y)
 pattern Intersect x y = Fix (Intersect_ x y)
 pattern Neg x = Fix (Neg_ x)
+
+instance Show LitPattern where
+    show (SetVar v) = show v
+    show (Ctor s l) = s ++  "(" ++ List.intercalate ", " (map show l) ++ ")" 
+    show (Top) = "⊤"
+    show (Bottom) = "⊥"
+    show (Union x y) = "(" ++ show x ++ " ∪ " ++ show y ++ ")"
+    show (Intersect x y) = "(" ++ show x ++ " ∩ " ++ show y ++ ")"
+    show (Neg x) = "(" ++"¬" ++ show x ++ ")"
 
 data Constraint_ self =
     CAnd_ [self]
@@ -178,15 +188,26 @@ pattern CEqual x y = Fix (CEqual_ x y)
 pattern CTrue = Fix CTrue_
 pattern CNot x = Fix (CNot_ x)
 
+instance Show Constraint where
+    show (CAnd l) = "(" ++ List.intercalate " ∧ " (map show l) ++ ")"
+    show (COr l) = "(" ++ List.intercalate " ∨ " (map show l) ++ ")"
+    show (CImplies x y) = "(" ++ show x ++ " ⇒ " ++ show y ++ ")"
+    show (CIff x y) = "(" ++ show x ++ " ⇔ " ++ show y ++ ")"
+    show (CNot (CSubset x y)) = show x ++ " ⊈ " ++ show y
+    show (CSubset x y) = show x ++ " ⊆ " ++ show y
+    show (CEqual x y) = show x ++ " ≡ " ++ show y 
+    show CTrue = "TRUE"
+    show (CNot c) = "(" ++"¬" ++ show c ++ ")"
+
 type LitPattern = Fix LitPattern_
 deriving instance Ord LitPattern
 
 type Constraint = Fix Constraint_
 deriving instance Ord Constraint
 
-instance (Show (f (Fix f))) => (Show (Fix f))
-  where
-    show (Fix x) = "(" ++ show x ++ ")"
+-- instance (Show (f (Fix f))) => (Show (Fix f))
+--   where
+--     show (Fix x) = "(" ++ show x ++ ")"
 -- deriving instance (Show a) => Show (LitPattern_ a )
 -- deriving instance (Show a) => Show (Constraint_ a)
 
@@ -457,12 +478,13 @@ removeUnreachableConstraints initial constrs discharge = do
 
 
 dischargeSafety comp = do
-        -- logIO $ "Trying to discharge unreachable constraints " ++ show $ comp
+        logIO $ "DISCHARGING: " ++ (show $ map fst comp)
         unreachSoln <- solveConstraint (CAnd $ map fst comp)
         case unreachSoln of
             Right _ -> return ()
             Left _ -> 
-                forM_ comp $ \ (_, (region, context, pats) ) ->
+                forM_ comp $ \ (_, (region, context, pats) ) -> do
+                    logIO "FAILED TO DISCHARGE"
                     throwError $ PatError.Incomplete region context (map PatError.simplify pats )            
     
 
@@ -470,8 +492,8 @@ dischargeSafety comp = do
 optimizeConstr :: forall m . (ConstrainM m) => TypeEffect  -> Constraint -> Safety -> m (TypeEffect, Constraint, Safety)
 optimizeConstr tipe (CAnd []) safety = return (tipe, CTrue, safety)
 optimizeConstr topTipe (CAnd l) safety = do
-    (optimizedPairs, tInter) <-  doOpts topTipe (map (,()) l) (\_ -> return ())
-    (optimizedSafetyList, tret) <- doOpts tInter (unSafety safety) dischargeSafety
+    (optimizedPairs, tInter) <-  doOpts topTipe (map (,()) l) (const $  return ())
+    (optimizedSafetyList, tret) <- doOpts tInter (unSafety safety)  dischargeSafety
     let optimizedSafety = Safety optimizedSafetyList
     let optimized = map fst optimizedPairs
     case (optimized == l && optimizedSafety ==  safety) of
@@ -596,6 +618,7 @@ toSCLitNoCycle seen l = do
         l -> error $ "Missing case for lit" ++ show l
 
 solveConstraint :: ConstrainM m => Constraint -> m (Either String ())
+-- solveConstraint !x = return $ Right ()
 solveConstraint CTrue = return $ Right ()
 solveConstraint c = do
     logIO "In solveConstraint, passing off to SBV"
@@ -795,7 +818,9 @@ constrainExpr tyMap _GammaPath (A.At region expr)  = do
     constrainExpr_ ::  (ConstrainM m) => Can.Expr_ -> TypeEffect -> (Gamma, Constraint) -> m Constraint
     constrainExpr_ (Can.VarLocal name) t (_Gamma, pathConstr) = do
         case Map.lookup name _Gamma of
-            Nothing ->  return (t ==== Top ) --Might hit this for record variables
+            Nothing ->  do
+                logIO $ "VAR NOT FOUND: " ++ N.toString name ++ "  at  " ++ show region 
+                return (t ==== Top ) --Might hit this for record variables
                         -- error $ "constrainExpr: name " ++ (show name) ++ "at region " ++ (show region) ++ " not found in " ++ (show _Gamma)
             (Just sigma) -> do
                 (tipe, constr) <- instantiate sigma
@@ -999,10 +1024,11 @@ constrainDef tyMap _GammaPath@(_Gamma, pathConstr) def = do
     --We check that each safety constraint in this definition is compatible with the other constraints
     let safetyList = unSafety theSafety
     logIO $  "Solving constraints for definition " ++ N.toString  x
-    logIO $ "Got safety constraints " ++ (show $ getSafetyConstrs theSafety)
+    logIO $ N.toString  x ++ ": Got safety constraints " ++ (show $ getSafetyConstrs theSafety)
     -- (optimizedDefType , optimizedDefConstr, optimizedDefSafety) <- optimizeConstr defType (defConstr )
     logIO $ "Getting optimized constraints for scheme"
     (optimizedType , optimizedConstr, optimizedSafety) <- optimizeConstr defType defConstr theSafety  
+    logIO $ N.toString  x ++ ": Got optimized safety constraints " ++ (show $ getSafetyConstrs optimizedSafety)
     -- mTestSoln <- solveConstraint optimizedDefConstr
     -- case mTestSoln of
     --     Right () -> return ()
