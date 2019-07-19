@@ -41,10 +41,11 @@ extra-deps:
  - microtimer-0.0.1.2
  - crackNum-2.3
  - constraints-0.11
- - z3-408.0
+ - github : JoeyEremondi/haskell-z3
+   commit: "1e342b4"
  - language-glsl-0.3.0
  - github : JoeyEremondi/SetConstraintsSMT
-   commit: "d346aff8c48b95455370ee01781c9f5a6716121e" 
+   commit: "9816deb" 
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
